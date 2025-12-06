@@ -76,8 +76,10 @@ export async function getWeather(
       dailyMap.get(dayStart)!.temps.push(item.main.temp);
     });
 
+    // Get all available days (API provides 5 days, but we group by day)
+    // We need at least 6 days for 7-day forecast (today + 6 more)
     const daily: DailyForecast[] = Array.from(dailyMap.values())
-      .slice(0, 7) // Next 7 days
+      .slice(0, 6) // Take 6 days from forecast (today will be added separately if needed)
       .map((data) => ({
         dt: data.dt,
         temp: {

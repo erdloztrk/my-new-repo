@@ -154,7 +154,7 @@ export function WeatherContainer() {
         <WeatherDetailsWidget
           windSpeed={weatherData.current.wind_speed}
           pressure={weatherData.current.pressure}
-          uvi={weatherData.current.uvi}
+          feelsLike={weatherData.current.feels_like}
           date={new Date()}
           loading={false}
         />

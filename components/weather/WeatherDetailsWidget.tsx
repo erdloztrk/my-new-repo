@@ -1,13 +1,13 @@
 import { View, Text } from "react-native";
 import { useTheme } from "@/stores/theme-store";
 import { MeteoconsIcon } from "./MeteoconsIcon";
-import { getBeaufortIcon, getUVIndexIcon, getMoonPhaseIcon, barometerSvg } from "./weatherIcons";
-import { BEAUFORT_SCALE, getBeaufortScale, getUVIndexLevel, UV_INDEX_LEVELS, getMoonPhase } from "./weatherTypes";
+import { getBeaufortIcon, getMoonPhaseIcon, barometerSvg, thermometer_celsiusSvg } from "./weatherIcons";
+import { BEAUFORT_SCALE, getBeaufortScale, getMoonPhase } from "./weatherTypes";
 
 interface WeatherDetailsWidgetProps {
   windSpeed: number; // m/s
   pressure: number | null | undefined; // hPa
-  uvi: number | null | undefined;
+  feelsLike: number | null | undefined; // °C (hissedilen sıcaklık)
   date?: Date;
   loading?: boolean;
 }
@@ -26,7 +26,7 @@ const MOON_PHASE_LABELS: Record<string, string> = {
 export function WeatherDetailsWidget({
   windSpeed,
   pressure,
-  uvi,
+  feelsLike,
   date = new Date(),
   loading = false,
 }: WeatherDetailsWidgetProps) {
@@ -53,10 +53,6 @@ export function WeatherDetailsWidget({
   const beaufortScale = getBeaufortScale(windSpeedKmh);
   const scaleData = BEAUFORT_SCALE[beaufortScale];
   const windIcon = getBeaufortIcon(beaufortScale);
-
-  const uvLevel = uvi !== null && uvi !== undefined ? getUVIndexLevel(uvi) : null;
-  const uvData = uvLevel !== null ? UV_INDEX_LEVELS[uvLevel] : null;
-  const uvIcon = uvLevel !== null ? getUVIndexIcon(uvi!) : null;
 
   const moonPhase = getMoonPhase(date);
   const moonIcon = getMoonPhaseIcon(moonPhase);
@@ -109,19 +105,16 @@ export function WeatherDetailsWidget({
           )}
         </View>
 
-        {/* UV Index */}
+        {/* Feels Like (Hissedilen Sıcaklık) */}
         <View className="flex-1 items-center">
-          {uvIcon && uvData ? (
+          {feelsLike !== null && feelsLike !== undefined ? (
             <>
-              <MeteoconsIcon xml={uvIcon} size={32} />
-              <Text
-                className="text-xs font-semibold mt-1"
-                style={{ color: uvData.color }}
-              >
-                {uvi!.toFixed(0)}
+              <MeteoconsIcon xml={thermometer_celsiusSvg} size={32} />
+              <Text className={`text-xs font-semibold mt-1 ${isDark ? "text-card-foreground-dark" : "text-card-foreground"}`}>
+                {Math.round(feelsLike)}°
               </Text>
               <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-                {uvData.label}
+                Hissedilen
               </Text>
             </>
           ) : (
