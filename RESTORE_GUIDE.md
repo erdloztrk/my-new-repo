@@ -1,13 +1,14 @@
-# 🔄 Projeyi "Dark Mode Stable" Noktasına Geri Döndürme Rehberi
+# 🔄 Projeyi Yedek Noktasına Geri Döndürme Rehberi
 
-Bu rehber, projeyi `dark-mode-stable` tag'ine (dark mode tam implementasyonu) geri döndürmek için adımları içerir.
+Bu rehber, projeyi yedek tag'ine geri döndürmek için adımları içerir.
 
 ## 📋 Ön Bilgiler
 
-- **Tag Adı:** `dark-mode-stable`
-- **Commit Hash:** `5c10f16`
-- **Commit Mesajı:** "feat: dark mode tam implementasyonu - sabit renk değerleri ile tüm ekranlar ve widget'lar güncellendi"
-- **Tarih:** Dark mode tam çalışır durumda, tüm ekranlar ve widget'lar güncellendi
+- **Tag Adı:** `backup-20251206-121550`
+- **Commit Hash:** `29b17a9`
+- **Commit Mesajı:** "feat: harita dark mode, 5 günlük tahmin widget, weather details düzeltmeleri"
+- **Tarih:** 2025-12-06 12:15:50
+- **Özellikler:** Harita dark mode, 5 günlük tahmin widget, weather details düzeltmeleri, react-native-maps entegrasyonu
 
 ---
 
@@ -28,7 +29,7 @@ git commit -m "WIP: mevcut değişiklikler"
 git stash
 
 # 3. Tag'e geri dön
-git checkout dark-mode-stable
+git checkout backup-20251206-121550
 
 # 4. Eğer stash kullandıysan ve değişiklikleri geri almak istersen:
 git stash pop
@@ -38,19 +39,19 @@ git stash pop
 
 ```bash
 # 1. Commit hash ile geri dön
-git checkout 5c10f16
+git checkout 29b17a9
 
 # 2. Detached HEAD durumunda olacaksın, yeni branch oluşturmak istersen:
-git checkout -b restore-dark-mode-stable
+git checkout -b restore-backup-20251206-121550
 ```
 
 ### Yöntem 3: Yeni Branch Oluşturarak
 
 ```bash
 # 1. Mevcut branch'inde kal, yeni bir branch oluştur
-git checkout -b restore-dark-mode-stable dark-mode-stable
+git checkout -b restore-backup-20251206-121550 backup-20251206-121550
 
-# 2. Artık bu branch'te dark-mode-stable noktasındasın
+# 2. Artık bu branch'te backup-20251206-121550 noktasındasın
 ```
 
 ### Yöntem 4: Hard Reset (DİKKAT: Tüm değişiklikler silinir!)
@@ -60,10 +61,10 @@ git checkout -b restore-dark-mode-stable dark-mode-stable
 # Önce yedek al: git stash veya git commit
 
 # 1. Tag'e hard reset yap
-git reset --hard dark-mode-stable
+git reset --hard backup-20251206-121550
 
 # 2. Veya commit hash ile
-git reset --hard 5c10f16
+git reset --hard 29b17a9
 ```
 
 ---
@@ -75,13 +76,13 @@ git reset --hard 5c10f16
 git tag
 
 # Tag detaylarını görüntüle
-git show dark-mode-stable
+git show backup-20251206-121550
 
 # Commit geçmişini görüntüle
 git log --oneline --graph --all
 
 # Belirli bir tag'in commit'ini görüntüle
-git log dark-mode-stable -1
+git log backup-20251206-121550 -1
 ```
 
 ---
@@ -94,13 +95,21 @@ Bu tag'te proje şu özelliklere sahip:
 - Tüm ekranlar (Home, Map, Saved, Profile) dark mode destekliyor
 - Weather widget'ları dark mode uyumlu
 - Tab bar dark mode uyumlu
+- Harita dark mode uyumlu (iOS ve Android)
 - Sabit renk değerleri kullanılıyor (CSS değişkenleri yerine)
+
+✅ **Harita Sistemi:**
+- react-native-maps entegrasyonu
+- Kullanıcı konumu gösterimi
+- Dark mode desteği (iOS: userInterfaceStyle, Android: customMapStyle)
+- POI'ler gizli (sadece yollar görünüyor)
 
 ✅ **Weather System:**
 - Current weather widget
-- 7 günlük tahmin widget'ı
-- Weather details widget (Wind, Pressure, UV Index, Moon Phase)
+- 5 günlük tahmin widget'ı (API limitine uygun)
+- Weather details widget (Wind, Pressure, Feels Like, Moon Phase)
 - Meteocons SVG icon'ları
+- Bugün kontrolü düzeltildi
 
 ✅ **Theme Management:**
 - System/Light/Dark mode seçimi
@@ -126,7 +135,7 @@ git tag
 git fetch --tags
 
 # Veya commit hash ile geri dön
-git checkout 5c10f16
+git checkout 29b17a9
 ```
 
 ### "Uncommitted changes" hatası alıyorsanız:
@@ -136,7 +145,7 @@ git checkout 5c10f16
 git stash
 
 # Tag'e geri dön
-git checkout dark-mode-stable
+git checkout backup-20251206-121550
 
 # Değişiklikleri geri almak istersen
 git stash pop
@@ -156,10 +165,12 @@ git checkout master  # veya main
 
 ## 📝 Notlar
 
-- Bu tag, dark mode'un tam çalışır durumda olduğu ilk stabil noktadır
+- Bu tag, harita dark mode ve 5 günlük tahmin widget'ının eklendiği noktadır
 - Tüm renkler sabit hex değerleri kullanıyor (CSS değişkenleri yok)
 - NativeWind v4 ile uyumlu
 - Expo SDK 54 kullanılıyor
+- react-native-maps paketi eklendi
+- OpenWeather 5-Day Forecast API kullanılıyor (ücretsiz tier)
 
 ---
 
@@ -169,9 +180,11 @@ git checkout master  # veya main
 - `app/_layout.tsx` - Root layout ve theme provider
 - `stores/theme-store.tsx` - Theme management
 - `components/weather/` - Weather widget'ları
+- `app/(tabs)/map.tsx` - Harita ekranı (react-native-maps)
 - `app/(tabs)/` - Tüm tab ekranları
+- `package.json` - react-native-maps dependency
 
 ---
 
-**Son Güncelleme:** Dark Mode Stable Tag oluşturulduğu tarih
+**Son Güncelleme:** 2025-12-06 12:15:50
 
