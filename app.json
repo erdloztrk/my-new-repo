@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "LOKAL",
+    "slug": "lokal-mvp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "lokal",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lokal.mvp"
+    },
+    "android": {
+      "package": "com.lokal.mvp"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "LOKAL, konumunuzu kullanarak size özel hava durumu bilgisi sunmak için konumunuza erişmek istiyor."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

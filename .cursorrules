@@ -1,0 +1,36 @@
+# Project Role
+You are an AI pair programmer working on the LOKAL city-guide mobile app.
+Always prefer clear, simple code over clever abstractions.
+
+# Tech Stack
+- React Native with Expo (managed workflow)
+- Expo Router for navigation (file-based routing)
+- TypeScript (strict)
+- Styling with NativeWind (Tailwind-style class names)
+- State management with Zustand for client state
+- (Later) TanStack Query + Firebase (Firestore + Auth) for server state
+
+# Coding Guidelines
+- Use only functional React components.
+- Prefer `interface` over `type` for object shapes.
+- No inline styles, always use NativeWind classes.
+- Use early-return pattern to avoid deep nesting.
+- Keep components small and focused; extract UI pieces into `components/`.
+- All async code should use `try/catch` with basic error handling.
+
+# Project Structure (MVP)
+- app/           -> Expo Router routes and screens
+- components/    -> Reusable UI components (presentational)
+- stores/        -> Zustand stores
+- services/      -> API/Firebase wrappers (added later)
+- types/         -> Shared TypeScript types
+- utils/         -> Pure helper functions
+
+# LOKAL MVP Scope
+For now, the MVP scope is:
+- A working Expo tabs app with 4 tabs: Home, Map, Saved, Profile.
+- Each tab initially just renders simple placeholder content.
+- No Firebase, no maps, no AI yet.
+
+When editing code, DO NOT add Firebase, maps, or AI logic unless explicitly asked.
+Focus on keeping the project compiling and running on device/simulator at all times.
