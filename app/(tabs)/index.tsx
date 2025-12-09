@@ -1,8 +1,70 @@
-import { View, Text, ScrollView, Pressable } from "react-native";
+import { View, Text, ScrollView, Pressable, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/stores/theme-store";
 import { WeatherContainer } from "@/components/weather/WeatherContainer";
+import Svg, { Defs, RadialGradient, Stop, Rect } from "react-native-svg";
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Gradient Background Component
+function GradientBackground({ isDark }: { isDark: boolean }) {
+  // Calculate gradient radius (125% of screen diagonal)
+  const diagonal = Math.sqrt(SCREEN_WIDTH * SCREEN_WIDTH + SCREEN_HEIGHT * SCREEN_HEIGHT);
+  const gradientRadius = diagonal * 1.25;
+  
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 0,
+      }}
+    >
+      <Svg width={SCREEN_WIDTH} height={SCREEN_HEIGHT}>
+        <Defs>
+          {isDark ? (
+            // Dark mode: Azure Depths - radial-gradient(125% 125% at 50% 100%, #000000 40%, #350136 100%)
+            <RadialGradient
+              id="darkGradient"
+              cx={SCREEN_WIDTH * 0.5}
+              cy={SCREEN_HEIGHT * 1.0}
+              r={gradientRadius}
+              fx={SCREEN_WIDTH * 0.5}
+              fy={SCREEN_HEIGHT * 1.0}
+            >
+              <Stop offset="0.4" stopColor="#000000" stopOpacity="1" />
+              <Stop offset="1" stopColor="#350136" stopOpacity="1" />
+            </RadialGradient>
+          ) : (
+            // Light mode: Amber Glow - radial-gradient(125% 125% at 50% 10%, #ffffff 40%, #f59e0b 100%)
+            <RadialGradient
+              id="lightGradient"
+              cx={SCREEN_WIDTH * 0.5}
+              cy={SCREEN_HEIGHT * 0.1}
+              r={gradientRadius}
+              fx={SCREEN_WIDTH * 0.5}
+              fy={SCREEN_HEIGHT * 0.1}
+            >
+              <Stop offset="0.4" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="1" stopColor="#f59e0b" stopOpacity="1" />
+            </RadialGradient>
+          )}
+        </Defs>
+        <Rect
+          x="0"
+          y="0"
+          width={SCREEN_WIDTH}
+          height={SCREEN_HEIGHT}
+          fill={isDark ? "url(#darkGradient)" : "url(#lightGradient)"}
+        />
+      </Svg>
+    </View>
+  );
+}
 
 const CATEGORIES = [
   { id: "1", name: "Kafeler", icon: "cafe" as const, color: "#E07A5F" },
@@ -16,8 +78,12 @@ export default function HomeScreen() {
   const isDark = colorScheme === "dark";
   
   return (
-    <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? "#000000" : "#FFFFFF" }}>
+      {/* Gradient Background */}
+      <GradientBackground isDark={isDark} />
+      
+      <SafeAreaView className="flex-1" style={{ backgroundColor: "transparent" }}>
+        <ScrollView className="flex-1" showsVerticalScrollIndicator={false} style={{ zIndex: 1 }}>
         {/* Header */}
         <View className="px-6 pt-4 pb-6">
           <Text className={`text-sm font-medium ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
@@ -84,6 +150,7 @@ export default function HomeScreen() {
           </View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
