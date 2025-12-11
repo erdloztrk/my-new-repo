@@ -1,9 +1,11 @@
 import { Tabs } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { MagnifyingGlass, MapTrifold, Bookmark, UserCircle } from "phosphor-react-native";
 import { useTheme } from "@/stores/theme-store";
+import { useI18n } from "@/stores/i18n-store";
 
 export default function TabLayout() {
   const { colorScheme } = useTheme();
+  const { t } = useI18n();
   const isDark = colorScheme === "dark";
 
   return (
@@ -30,36 +32,36 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Keşfet",
+          title: t("explore"),
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="compass" size={size} color={color} />
+            <MagnifyingGlass size={size} color={color} weight="regular" />
           ),
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
-          title: "Harita",
+          title: t("map"),
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map" size={size} color={color} />
+            <MapTrifold size={size} color={color} weight="regular" />
           ),
         }}
       />
       <Tabs.Screen
         name="saved"
         options={{
-          title: "Kaydedilenler",
+          title: t("saved"),
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="heart" size={size} color={color} />
+            <Bookmark size={size} color={color} weight="regular" />
           ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profil",
+          title: t("profile"),
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+            <UserCircle size={size} color={color} weight="regular" />
           ),
         }}
       />

@@ -49,6 +49,37 @@ export async function getWeather(
 
     const forecastData = await forecastResponse.json();
 
+    // Calculate UV Index based on time of day and weather conditions
+    // OpenWeather Current Weather API doesn't provide UV Index in free tier
+    // So we estimate it based on time, weather, and cloud coverage
+    const calculateUVIndex = (): number => {
+      const now = new Date(currentData.dt * 1000);
+      const hours = now.getHours();
+      const weatherMain = currentData.weather[0]?.main?.toLowerCase() || "";
+      const clouds = currentData.clouds?.all || 0;
+      
+      // UV Index is highest around noon (12:00-14:00)
+      let baseUV = 0;
+      if (hours >= 6 && hours <= 18) {
+        // Daytime: calculate based on hour (peak at 12:00)
+        const hourFromNoon = Math.abs(hours - 12);
+        baseUV = Math.max(0, 8 - hourFromNoon * 0.8);
+      }
+      
+      // Adjust for weather conditions
+      if (weatherMain.includes("clear") || weatherMain.includes("sun")) {
+        baseUV *= 1.0; // Full sun
+      } else if (weatherMain.includes("cloud")) {
+        baseUV *= (1 - clouds / 200); // Reduce based on cloud coverage
+      } else if (weatherMain.includes("rain") || weatherMain.includes("storm")) {
+        baseUV *= 0.3; // Heavy clouds/rain
+      } else {
+        baseUV *= 0.6; // Other conditions
+      }
+      
+      return Math.round(Math.max(0, Math.min(11, baseUV)));
+    };
+
     // Transform to match WeatherResponse interface
     const current: CurrentWeather = {
       dt: currentData.dt,
@@ -57,7 +88,7 @@ export async function getWeather(
       humidity: currentData.main.humidity,
       wind_speed: currentData.wind?.speed || 0,
       pressure: currentData.main.pressure,
-      uvi: currentData.uvi, // UV Index (may not be available in free tier)
+      uvi: currentData.uvi || calculateUVIndex(), // Use API value if available, otherwise calculate
       weather: currentData.weather,
       sunrise: currentData.sys.sunrise,
       sunset: currentData.sys.sunset,
@@ -76,11 +107,10 @@ export async function getWeather(
       dailyMap.get(dayStart)!.temps.push(item.main.temp);
     });
 
-    // Get all available days (API provides 5 days, but we group by day)
-    // We need at least 6 days for 7-day forecast (today + 6 more)
-    const daily: DailyForecast[] = Array.from(dailyMap.values())
-      .slice(0, 6) // Take 6 days from forecast (today will be added separately if needed)
-      .map((data) => ({
+    // Sort by date to ensure chronological order
+    const sortedDaily = Array.from(dailyMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([_, data]) => ({
         dt: data.dt,
         temp: {
           min: Math.min(...data.temps),
@@ -88,6 +118,9 @@ export async function getWeather(
         },
         weather: [data.weather],
       }));
+
+    // Get all available days (API provides 5 days forecast)
+    const daily: DailyForecast[] = sortedDaily.slice(0, 7); // Take up to 7 days
 
     const response: WeatherResponse = {
       current,

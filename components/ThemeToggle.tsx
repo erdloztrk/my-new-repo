@@ -1,5 +1,5 @@
 import { Pressable, View, Text } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Sun, Moon } from "phosphor-react-native";
 import { useTheme } from "@/stores/theme-store";
 
 interface ThemeToggleProps {
@@ -17,11 +17,11 @@ export function ThemeToggle({ size = 24, showLabel = false }: ThemeToggleProps) 
       className="flex-row items-center active:opacity-70"
     >
       <View className="w-10 h-10 rounded-full bg-card border border-border items-center justify-center">
-        <Ionicons
-          name={isDark ? "sunny" : "moon"}
-          size={size}
-          color={isDark ? "#FFD700" : "#6C63FF"}
-        />
+        {isDark ? (
+          <Sun size={size} color="#FFD700" weight="fill" />
+        ) : (
+          <Moon size={size} color="#6C63FF" weight="fill" />
+        )}
       </View>
       {showLabel && (
         <View className="ml-2">

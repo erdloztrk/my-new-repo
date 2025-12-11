@@ -7,12 +7,17 @@
     "scheme": "lokal",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.lokal.mvp"
     },
     "android": {
-      "package": "com.lokal.mvp"
+      "package": "com.lokal.mvp",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6C63FF"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -25,7 +30,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "LOKAL, konumunuzu kullanarak size özel hava durumu bilgisi sunmak için konumunuza erişmek istiyor."
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true
