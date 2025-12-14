@@ -5,6 +5,9 @@ const OPENWEATHER_API_KEY = process.env.EXPO_PUBLIC_OPENWEATHER_KEY;
 const BASE_URL_CURRENT = "https://api.openweathermap.org/data/2.5/weather";
 const BASE_URL_FORECAST = "https://api.openweathermap.org/data/2.5/forecast";
 const BASE_URL_AIR_POLLUTION = "https://api.openweathermap.org/data/2.5/air_pollution";
+// Open-Meteo Marine API - Free and open source
+// Using the marine-specific API endpoint
+const BASE_URL_MARINE = "https://marine-api.open-meteo.com/v1/marine";
 
 if (!OPENWEATHER_API_KEY) {
   console.warn(
@@ -80,6 +83,127 @@ export async function getWeather(
       return Math.round(Math.max(0, Math.min(11, baseUV)));
     };
 
+    // Fetch marine data from Open-Meteo (free API)
+    let seaTemperature: number | undefined = undefined;
+    let waveHeight: number | undefined = undefined;
+    
+    try {
+      // Open-Meteo Marine API endpoint
+      // Try different API endpoints and parameters
+      let marineResponse: Response | null = null;
+      let marineData: any = null;
+      
+      // Try 1: Standard marine API with forecast_days
+      try {
+        const marineUrl1 = `${BASE_URL_MARINE}?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=sea_surface_temperature,wave_height&forecast_days=1&timezone=auto`;
+        // #region agent log
+        console.log("[marine] trying URL 1:", marineUrl1);
+        // #endregion
+        marineResponse = await fetch(marineUrl1);
+        if (marineResponse.ok) {
+          marineData = await marineResponse.json();
+        }
+      } catch (e) {
+        // #region agent log
+        console.log("[marine] URL 1 failed:", e);
+        // #endregion
+      }
+      
+      // Try 2: Without forecast_days
+      if (!marineResponse || !marineResponse.ok) {
+        try {
+          const marineUrl2 = `${BASE_URL_MARINE}?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=sea_surface_temperature,wave_height&timezone=auto`;
+          // #region agent log
+          console.log("[marine] trying URL 2:", marineUrl2);
+          // #endregion
+          marineResponse = await fetch(marineUrl2);
+          if (marineResponse.ok) {
+            marineData = await marineResponse.json();
+          }
+        } catch (e) {
+          // #region agent log
+          console.log("[marine] URL 2 failed:", e);
+          // #endregion
+        }
+      }
+      
+      // Try 3: Alternative endpoint (forecast API)
+      if (!marineResponse || !marineResponse.ok) {
+        try {
+          const marineUrl3 = `https://api.open-meteo.com/v1/marine?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=sea_surface_temperature,wave_height&timezone=auto`;
+          // #region agent log
+          console.log("[marine] trying URL 3:", marineUrl3);
+          // #endregion
+          marineResponse = await fetch(marineUrl3);
+          if (marineResponse.ok) {
+            marineData = await marineResponse.json();
+          }
+        } catch (e) {
+          // #region agent log
+          console.log("[marine] URL 3 failed:", e);
+          // #endregion
+        }
+      }
+      
+      if (marineResponse && marineResponse.ok && marineData) {
+        // #region agent log
+        console.log("[marine] API success, data keys:", Object.keys(marineData));
+        // #endregion
+        
+        // Get current hour's data (or nearest available)
+        if (marineData.hourly && marineData.hourly.time && marineData.hourly.time.length > 0) {
+          const now = new Date();
+          
+          // Find the closest time index to current time
+          let closestIndex = 0;
+          let minDiff = Infinity;
+          
+          marineData.hourly.time.forEach((timeStr: string, index: number) => {
+            const time = new Date(timeStr);
+            const diff = Math.abs(time.getTime() - now.getTime());
+            if (diff < minDiff) {
+              minDiff = diff;
+              closestIndex = index;
+            }
+          });
+          
+          // Get sea surface temperature (Open-Meteo returns in Celsius)
+          const rawSeaTemp = marineData.hourly.sea_surface_temperature?.[closestIndex];
+          
+          if (
+            rawSeaTemp !== null &&
+            rawSeaTemp !== undefined &&
+            !isNaN(rawSeaTemp) &&
+            rawSeaTemp > -50 && // Reasonable temperature range
+            rawSeaTemp < 50
+          ) {
+            seaTemperature = Math.round(rawSeaTemp * 10) / 10; // Round to 1 decimal
+          }
+          
+          // Get wave height (in meters)
+          const rawWaveHeight = marineData.hourly.wave_height?.[closestIndex];
+          
+          if (
+            marineData.hourly.wave_height && 
+            rawWaveHeight !== null &&
+            rawWaveHeight !== undefined &&
+            !isNaN(rawWaveHeight) &&
+            rawWaveHeight >= 0
+          ) {
+            // Accept all non-negative values, including 0 (calm sea)
+            // Round to 1 decimal place
+            waveHeight = Math.round(rawWaveHeight * 10) / 10;
+          }
+        }
+      } else {
+        const errorText = await marineResponse.text();
+        console.warn("Open-Meteo Marine API response not OK:", marineResponse.status, errorText.substring(0, 200));
+      }
+    } catch (marineError: any) {
+      console.warn("Error fetching marine data from Open-Meteo:", marineError);
+      // Continue without marine data - it's optional
+    }
+
     // Transform to match WeatherResponse interface
     const current: CurrentWeather = {
       dt: currentData.dt,
@@ -87,11 +211,14 @@ export async function getWeather(
       feels_like: currentData.main.feels_like,
       humidity: currentData.main.humidity,
       wind_speed: currentData.wind?.speed || 0,
+      wind_deg: currentData.wind?.deg, // Wind direction in degrees
       pressure: currentData.main.pressure,
       uvi: currentData.uvi || calculateUVIndex(), // Use API value if available, otherwise calculate
       weather: currentData.weather,
       sunrise: currentData.sys.sunrise,
       sunset: currentData.sys.sunset,
+      seaTemperature,
+      waveHeight,
     };
 
     // Group forecast by day and get daily min/max
@@ -127,6 +254,7 @@ export async function getWeather(
       daily,
       timezone: forecastData.city.timezone.toString(),
       timezone_offset: forecastData.city.timezone,
+      forecastList: forecastData.list, // Include raw forecast list for hourly processing
     };
 
     return response;

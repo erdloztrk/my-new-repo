@@ -6,6 +6,7 @@ export interface CurrentWeather {
   feels_like: number;
   humidity: number;
   wind_speed: number;
+  wind_deg?: number; // Wind direction in degrees (0-360)
   pressure?: number; // hPa
   uvi?: number; // UV Index (0-11+)
   weather: Array<{
@@ -16,6 +17,9 @@ export interface CurrentWeather {
   }>;
   sunrise: number;
   sunset: number;
+  // Extended data (may not be available from API)
+  seaTemperature?: number; // Sea water temperature in Celsius
+  waveHeight?: number; // Wave height in meters
 }
 
 export interface DailyForecast {
@@ -53,6 +57,12 @@ export interface WeatherResponse {
   daily: DailyForecast[];
   timezone: string;
   timezone_offset: number;
+  forecastList?: Array<{
+    dt: number;
+    main: { temp: number; pressure?: number; humidity: number };
+    wind: { speed: number; deg?: number };
+    weather: Array<{ icon: string }>;
+  }>; // 3-hour forecast intervals
 }
 
 export interface LocationCoords {
@@ -206,5 +216,64 @@ export function getBeaufortScale(windSpeedKmh: number): number {
  */
 export function getUVIndexLevel(uvi: number): number {
   return Math.min(Math.max(Math.round(uvi), 0), 11);
+}
+
+/**
+ * Convert wind direction degrees to Turkish wind name
+ * @param deg Wind direction in degrees (0-360)
+ * @returns Turkish wind name (Poyraz, Lodos, Karayel, Yıldız, etc.)
+ */
+export function getTurkishWindName(deg: number | undefined): string {
+  if (deg === undefined || deg === null) {
+    return "Bilinmiyor";
+  }
+
+  // Normalize degrees to 0-360
+  const normalizedDeg = ((deg % 360) + 360) % 360;
+
+  // Turkish wind directions (8 main directions)
+  // North: 0°, Northeast: 45°, East: 90°, Southeast: 135°, South: 180°, Southwest: 225°, West: 270°, Northwest: 315°
+  
+  if (normalizedDeg >= 337.5 || normalizedDeg < 22.5) {
+    return "Yıldız"; // North (N)
+  } else if (normalizedDeg >= 22.5 && normalizedDeg < 67.5) {
+    return "Poyraz"; // Northeast (NE)
+  } else if (normalizedDeg >= 67.5 && normalizedDeg < 112.5) {
+    return "Gündoğusu"; // East (E)
+  } else if (normalizedDeg >= 112.5 && normalizedDeg < 157.5) {
+    return "Keşişleme"; // Southeast (SE)
+  } else if (normalizedDeg >= 157.5 && normalizedDeg < 202.5) {
+    return "Lodos"; // South (S)
+  } else if (normalizedDeg >= 202.5 && normalizedDeg < 247.5) {
+    return "Günbatısı"; // Southwest (SW)
+  } else if (normalizedDeg >= 247.5 && normalizedDeg < 292.5) {
+    return "Karayel"; // West (W)
+  } else if (normalizedDeg >= 292.5 && normalizedDeg < 337.5) {
+    return "Kıble"; // Northwest (NW)
+  }
+
+  return "Bilinmiyor";
+}
+
+/**
+ * Get wind direction abbreviation (N, NE, E, SE, S, SW, W, NW)
+ */
+export function getWindDirectionAbbr(deg: number | undefined): string {
+  if (deg === undefined || deg === null) {
+    return "-";
+  }
+
+  const normalizedDeg = ((deg % 360) + 360) % 360;
+
+  if (normalizedDeg >= 337.5 || normalizedDeg < 22.5) return "K";
+  if (normalizedDeg >= 22.5 && normalizedDeg < 67.5) return "KD";
+  if (normalizedDeg >= 67.5 && normalizedDeg < 112.5) return "D";
+  if (normalizedDeg >= 112.5 && normalizedDeg < 157.5) return "GD";
+  if (normalizedDeg >= 157.5 && normalizedDeg < 202.5) return "G";
+  if (normalizedDeg >= 202.5 && normalizedDeg < 247.5) return "GB";
+  if (normalizedDeg >= 247.5 && normalizedDeg < 292.5) return "B";
+  if (normalizedDeg >= 292.5 && normalizedDeg < 337.5) return "KB";
+
+  return "-";
 }
 

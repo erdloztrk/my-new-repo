@@ -1,13 +1,14 @@
-import React from "react";
-import { View, Text, ScrollView, Pressable, Dimensions } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, ScrollView, Pressable, Dimensions, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MagnifyingGlass, Sparkle } from "phosphor-react-native";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
-import { router } from "expo-router";
-import { Category } from "@/types/category";
 import Svg, { Defs, RadialGradient, Stop, Rect } from "react-native-svg";
-import { TablerIcon } from "@/components/icons/TablerIcon";
+import * as Location from "expo-location";
+import { getWeather } from "@/components/weather/weatherAPI";
+import { CurrentWeather } from "@/components/weather/weatherTypes";
+import { ComprehensiveWeatherWidget } from "@/components/weather/ComprehensiveWeatherWidget";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -70,36 +71,74 @@ function GradientBackground({ isDark }: { isDark: boolean }) {
   );
 }
 
-const CATEGORIES: Array<{ id: string; nameKey: string; category: Category; iconName: string; color: string }> = [
-  { id: "1", nameKey: "category_cafes", category: "cafes", iconName: "coffee", color: "#E07A5F" },
-  { id: "2", nameKey: "category_restaurants", category: "restaurants", iconName: "tools-kitchen", color: "#81B29A" },
-  { id: "3", nameKey: "category_bars", category: "bars", iconName: "glass-full", color: "#3D405B" },
-  { id: "4", nameKey: "category_parks", category: "parks", iconName: "tree", color: "#F2CC8F" },
-  { id: "5", nameKey: "category_beach_clubs", category: "beach_clubs", iconName: "beach", color: "#38BDF8" },
-  { id: "6", nameKey: "category_hotels", category: "hotels", iconName: "hotel-service", color: "#8B5CF6" },
-  { id: "7", nameKey: "category_cinemas", category: "cinemas", iconName: "movie", color: "#EC4899" },
-  { id: "8", nameKey: "category_shopping", category: "shopping", iconName: "shopping-bag", color: "#F59E0B" },
-  { id: "9", nameKey: "category_gyms", category: "gyms", iconName: "gymnastics", color: "#EF4444" },
-  { id: "10", nameKey: "category_libraries", category: "libraries", iconName: "library", color: "#6366F1" },
-  { id: "11", nameKey: "category_hospitals", category: "hospitals", iconName: "hospital", color: "#DC2626" },
-  { id: "12", nameKey: "category_schools", category: "schools", iconName: "school", color: "#10B981" },
-  { id: "13", nameKey: "category_churches", category: "churches", iconName: "building-church", color: "#6B7280" },
-  { id: "14", nameKey: "category_banks", category: "banks", iconName: "building-bank", color: "#059669" },
-  { id: "15", nameKey: "category_gas_stations", category: "gas_stations", iconName: "gas-station", color: "#F97316" },
-  { id: "16", nameKey: "category_parking", category: "parking", iconName: "parking", color: "#64748B" },
-  { id: "17", nameKey: "category_bus_stops", category: "bus_stops", iconName: "bus", color: "#3B82F6" },
-  { id: "18", nameKey: "category_train_stations", category: "train_stations", iconName: "train", color: "#0EA5E9" },
-  { id: "19", nameKey: "category_nightclubs", category: "nightclubs", iconName: "music", color: "#A855F7" },
-  { id: "20", nameKey: "category_art_galleries", category: "art_galleries", iconName: "artboard", color: "#EC4899" },
-  { id: "21", nameKey: "category_ice_cream", category: "ice_cream", iconName: "ice-cream", color: "#F0ABFC" },
-  { id: "22", nameKey: "category_bakeries", category: "bakeries", iconName: "bread", color: "#FCD34D" },
-  { id: "23", nameKey: "category_bookstores", category: "bookstores", iconName: "book", color: "#8B5CF6" },
-];
 
 export default function HomeScreen() {
   const { colorScheme } = useTheme();
   const { t } = useI18n();
   const isDark = colorScheme === "dark";
+  const [weather, setWeather] = useState<CurrentWeather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [cityName, setCityName] = useState<string | undefined>(undefined);
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadWeather = async () => {
+    try {
+      setWeatherLoading(true);
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          setWeatherLoading(false);
+          return;
+        }
+
+        const currentLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        
+        setLocation(currentLocation);
+
+        // Get city name from reverse geocoding
+        try {
+          const reverseGeocode = await Location.reverseGeocodeAsync({
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude,
+          });
+          
+          if (reverseGeocode && reverseGeocode.length > 0) {
+            const address = reverseGeocode[0];
+            // Try to get city name, fallback to district or region
+            const city = address.city || address.district || address.subregion || undefined;
+            setCityName(city);
+          }
+        } catch (geocodeError) {
+          console.error("Error reverse geocoding:", geocodeError);
+          // Continue without city name
+        }
+
+        const weatherData = await getWeather({
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+        });
+
+        if (weatherData) {
+          setWeather(weatherData.current);
+        }
+      } catch (error) {
+        console.error("Error loading weather:", error);
+      } finally {
+        setWeatherLoading(false);
+        setRefreshing(false);
+      }
+    };
+
+  useEffect(() => {
+    loadWeather();
+  }, []);
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    loadWeather();
+  }, []);
   
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? "#000000" : "#FFFFFF" }}>
@@ -107,7 +146,19 @@ export default function HomeScreen() {
       <GradientBackground isDark={isDark} />
       
       <SafeAreaView className="flex-1" style={{ backgroundColor: "transparent" }}>
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false} style={{ zIndex: 1 }}>
+        <ScrollView 
+          className="flex-1" 
+          showsVerticalScrollIndicator={false} 
+          style={{ zIndex: 1 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={isDark ? "#6C63FF" : "#6C63FF"}
+              colors={["#6C63FF"]}
+            />
+          }
+        >
         {/* Header */}
         <View className="px-6 pt-4 pb-6">
           <Text className={`text-sm font-medium ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
@@ -131,30 +182,17 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Categories */}
+        {/* Weather Widget */}
         <View className="px-6 mb-6">
-          <Text className={`text-lg font-semibold mb-4 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
-            {t("categories")}
-          </Text>
-          <View className="flex-row flex-wrap justify-between">
-            {CATEGORIES.map((cat) => (
-              <Pressable
-                key={cat.id}
-                onPress={() => router.push(`/(places)/category/${cat.category}`)}
-                className={`w-[48%] rounded-2xl p-4 mb-3 shadow-sm border ${isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"}`}
-              >
-                <View
-                  className="w-12 h-12 rounded-full items-center justify-center mb-3"
-                  style={{ backgroundColor: `${cat.color}20` }}
-                >
-                  <TablerIcon name={cat.iconName} size={24} color={cat.color} />
-                </View>
-                <Text className={`text-base font-semibold ${isDark ? "text-card-foreground-dark" : "text-card-foreground"}`}>
-                  {t(cat.nameKey)}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+          <ComprehensiveWeatherWidget
+            weather={weather}
+            cityName={cityName}
+            loading={weatherLoading}
+            coordinates={location ? {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            } : undefined}
+          />
         </View>
 
         {/* Featured Section Placeholder */}

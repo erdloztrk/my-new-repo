@@ -143,6 +143,46 @@ const translations: Record<Language, Record<string, string>> = {
     
     // Month summary
     month_summary: "Ağustos Sıcaklık Özeti",
+    
+    // Fishing Activity
+    "fishing.activity.title": "Balık Tutma Koşulları",
+    "fishing.activity.species": "Türler",
+    "fishing.activity.why": "Neden böyle?",
+    "fishing.breakdown.title": "Koşul Analizi",
+    "fishing.breakdown.value": "Değer",
+    "fishing.factor.wave": "Dalga Yüksekliği",
+    "fishing.factor.wave.calm": "Sakin deniz, ideal koşullar",
+    "fishing.factor.wave.moderate": "Orta dalga, kabul edilebilir",
+    "fishing.factor.wave.high": "Yüksek dalga, dikkatli olun",
+    "fishing.factor.wave.very_high": "Çok yüksek dalga, tehlikeli",
+    "fishing.factor.wave.no_data": "Dalga verisi mevcut değil",
+    "fishing.factor.wind": "Rüzgar Hızı",
+    "fishing.factor.wind.calm": "Hafif rüzgar, ideal",
+    "fishing.factor.wind.moderate": "Orta rüzgar, kabul edilebilir",
+    "fishing.factor.wind.strong": "Güçlü rüzgar, dikkatli olun",
+    "fishing.factor.wind.very_strong": "Çok güçlü rüzgar, tehlikeli",
+    "fishing.factor.sst": "Deniz Sıcaklığı",
+    "fishing.factor.sst.ideal": "Ideal sıcaklık aralığında",
+    "fishing.factor.sst.acceptable": "Kabul edilebilir sıcaklık",
+    "fishing.factor.sst.cold": "Soğuk deniz, bazı türler için uygun değil",
+    "fishing.factor.sst.warm": "Sıcak deniz, bazı türler için uygun değil",
+    "fishing.factor.sst.no_data": "Deniz sıcaklığı verisi mevcut değil",
+    "fishing.factor.pressure": "Hava Basıncı",
+    "fishing.factor.pressure.stable": "Stabil basınç, ideal",
+    "fishing.factor.pressure.normal": "Normal basınç",
+    "fishing.factor.pressure.low": "Düşük basınç, hava değişebilir",
+    "fishing.factor.pressure.high": "Yüksek basınç, stabil hava",
+    "fishing.breakdown.no_data": "Veri yükleniyor veya mevcut değil",
+    
+    // Fishing PRO
+    "fishing.pro.title": "Balık Tutma PRO",
+    "fishing.pro.hourly_curve": "Saatlik Skor Eğrisi",
+    "fishing.pro.best_time": "En İyi Zaman Aralığı",
+    "fishing.pro.avg_score": "Ortalama Skor",
+    "fishing.pro.bait_suggestion": "Yem Önerisi",
+    "fishing.pro.primary_bait": "Birincil Yem",
+    "fishing.pro.secondary_bait": "İkincil Yem",
+    "fishing.pro.no_forecast": "Saatlik tahmin verisi mevcut değil",
   },
   en: {
     // Common
@@ -273,6 +313,46 @@ const translations: Record<Language, Record<string, string>> = {
     
     // Month summary
     month_summary: "August Temperature Summary",
+    
+    // Fishing Activity
+    "fishing.activity.title": "Fishing Conditions",
+    "fishing.activity.species": "Species",
+    "fishing.activity.why": "Why?",
+    "fishing.breakdown.title": "Condition Analysis",
+    "fishing.breakdown.value": "Value",
+    "fishing.factor.wave": "Wave Height",
+    "fishing.factor.wave.calm": "Calm sea, ideal conditions",
+    "fishing.factor.wave.moderate": "Moderate waves, acceptable",
+    "fishing.factor.wave.high": "High waves, be careful",
+    "fishing.factor.wave.very_high": "Very high waves, dangerous",
+    "fishing.factor.wave.no_data": "Wave data not available",
+    "fishing.factor.wind": "Wind Speed",
+    "fishing.factor.wind.calm": "Light wind, ideal",
+    "fishing.factor.wind.moderate": "Moderate wind, acceptable",
+    "fishing.factor.wind.strong": "Strong wind, be careful",
+    "fishing.factor.wind.very_strong": "Very strong wind, dangerous",
+    "fishing.factor.sst": "Sea Temperature",
+    "fishing.factor.sst.ideal": "Within ideal temperature range",
+    "fishing.factor.sst.acceptable": "Acceptable temperature",
+    "fishing.factor.sst.cold": "Cold sea, not suitable for some species",
+    "fishing.factor.sst.warm": "Warm sea, not suitable for some species",
+    "fishing.factor.sst.no_data": "Sea temperature data not available",
+    "fishing.factor.pressure": "Air Pressure",
+    "fishing.factor.pressure.stable": "Stable pressure, ideal",
+    "fishing.factor.pressure.normal": "Normal pressure",
+    "fishing.factor.pressure.low": "Low pressure, weather may change",
+    "fishing.factor.pressure.high": "High pressure, stable weather",
+    "fishing.breakdown.no_data": "Data is loading or not available",
+    
+    // Fishing PRO
+    "fishing.pro.title": "Fishing PRO",
+    "fishing.pro.hourly_curve": "Hourly Score Curve",
+    "fishing.pro.best_time": "Best Time Window",
+    "fishing.pro.avg_score": "Average Score",
+    "fishing.pro.bait_suggestion": "Bait Suggestion",
+    "fishing.pro.primary_bait": "Primary Bait",
+    "fishing.pro.secondary_bait": "Secondary Bait",
+    "fishing.pro.no_forecast": "Hourly forecast data not available",
     
     // Places
     no_image: "No image",
