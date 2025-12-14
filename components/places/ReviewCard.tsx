@@ -32,7 +32,13 @@ export function ReviewCard({ review }: ReviewCardProps) {
           {review.userName}
         </Text>
         <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-          {formatDate(review.createdAt)}
+          {formatDate(
+            review.createdAt instanceof Date
+              ? review.createdAt
+              : review.createdAt && typeof review.createdAt === "object" && "seconds" in review.createdAt
+                ? new Date((review.createdAt as any).seconds * 1000)
+                : new Date()
+          )}
         </Text>
       </View>
 

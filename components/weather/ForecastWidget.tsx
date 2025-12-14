@@ -72,6 +72,15 @@ export function ForecastWidget({
   // Check if first forecast day is today
   const firstForecastIsToday = forecast.length > 0 && currentWeather && isToday(forecast[0].dt);
   
+  const normalizeWeather = (icon: string) => [
+    {
+      id: 0,
+      main: "Unknown",
+      description: "Unknown",
+      icon,
+    },
+  ];
+  
   // If first forecast is today, use forecast directly (take 5 days)
   // Otherwise, prepend today and take 4 more days from forecast
   let all5Days: typeof forecast;
@@ -86,7 +95,9 @@ export function ForecastWidget({
         min: Math.round(currentWeather.temp - 3), // Approximate min
         max: Math.round(currentWeather.temp + 3), // Approximate max
       },
-      weather: currentWeather.weather,
+      weather: currentWeather.weather?.length
+        ? (currentWeather.weather as any)
+        : normalizeWeather("01d"),
     };
     // Take 4 days from forecast to make total 5 (today + 4)
     all5Days = [today, ...forecast.slice(0, 4)];

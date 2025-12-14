@@ -228,7 +228,6 @@ const PROVINCE_SHORE_FISHING: Record<string, string[]> = {
   "İzmir": ["gilthead_seabream", "seabass", "red_mullet"], // Çipura, Levrek, Barbun
   "Muğla": ["gilthead_seabream", "seabass", "red_mullet"], // Çipura, Levrek, Barbun
   "Aydın": ["gilthead_seabream", "seabass", "red_mullet"], // Çipura, Levrek, Barbun
-  "Çanakkale": ["gilthead_seabream", "seabass", "red_mullet", "bluefish"], // Çipura, Levrek, Barbun, Lüfer
   
   // Akdeniz Bölgesi
   "Antalya": ["gilthead_seabream", "seabass", "red_mullet"], // Çipura, Levrek, Barbun
@@ -247,57 +246,19 @@ const PROVINCE_SHORE_FISHING: Record<string, string[]> = {
 };
 
 export function scoreFishingNow(input: ScoreFishingNowInput, profiles: FishProfile[] = MARMARA_CORE_PROFILES, provinceName?: string): FishRecommendation[] {
-  // #region agent log
-  console.log("[fishScoring] input", {
-    seaRegion: input.seaRegion,
-    shoreType: input.shoreType,
-    seaTempC: input.seaTempC,
-    waveHeightM: input.waveHeightM,
-    windSpeedKmh: input.windSpeedKmh,
-    hasCoords: !!input.coords,
-    hasWeather: !!input.weather,
-    weatherSunrise: input.weather?.sunrise,
-    weatherSunset: input.weather?.sunset,
-    profilesCount: profiles.length,
-    provinceName,
-  });
-  // #endregion
-
   // Filter profiles by province-based shore fishing (kıyı balıkçılığı avları)
   let filteredProfiles = profiles;
   
   if (provinceName && PROVINCE_SHORE_FISHING[provinceName]) {
     const provinceFishIds = PROVINCE_SHORE_FISHING[provinceName];
     filteredProfiles = profiles.filter((p) => provinceFishIds.includes(p.id));
-    // #region agent log
-    console.log("[fishScoring] filtered by province shore fishing", {
-      provinceName,
-      provinceFishIds,
-      originalCount: profiles.length,
-      filteredCount: filteredProfiles.length,
-      filteredIds: filteredProfiles.map(p => p.id),
-    });
-    // #endregion
   } else if (input.seaRegion && input.seaRegion !== "Unknown") {
     // Fallback to sea region filtering if province not found
     filteredProfiles = profiles.filter((p) => 
       p.primaryRegions.includes(input.seaRegion!)
     );
-    // #region agent log
-    console.log("[fishScoring] filtered by region (fallback)", {
-      seaRegion: input.seaRegion,
-      originalCount: profiles.length,
-      filteredCount: filteredProfiles.length,
-      filteredIds: filteredProfiles.map(p => p.id),
-    });
-    // #endregion
   } else {
     // If region is Unknown, use all profiles (fallback)
-    // #region agent log
-    console.log("[fishScoring] region unknown, using all profiles", {
-      profilesCount: profiles.length,
-    });
-    // #endregion
   }
 
   try {
@@ -305,7 +266,7 @@ export function scoreFishingNow(input: ScoreFishingNowInput, profiles: FishProfi
       try {
         const result = scoreProfile(input, p);
         // #region agent log
-        console.log("[fishScoring] scored profile", { id: p.id, trName: p.trName, score: result.score });
+        // scoring debug removed
         // #endregion
         return result;
       } catch (err) {
@@ -318,7 +279,7 @@ export function scoreFishingNow(input: ScoreFishingNowInput, profiles: FishProfi
     const sorted = scored.sort((a, b) => b.score - a.score);
     const top5 = sorted.slice(0, 5);
     // #region agent log
-    console.log("[fishScoring] final result", { top5Count: top5.length, allScores: sorted.map(s => ({ id: s.id, score: s.score })) });
+    // final result debug removed
     // #endregion
     return top5;
   } catch (error) {

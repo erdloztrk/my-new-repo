@@ -138,7 +138,7 @@ export function ComprehensiveWeatherWidget({
             {windName}
           </Text>
           <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-            km/s
+            km/h
           </Text>
         </View>
 

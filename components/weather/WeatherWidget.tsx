@@ -87,7 +87,7 @@ export function WeatherWidget({
             color={isDark ? "#94A3B8" : "#64748B"}
           />
           <Text className={`text-xs ml-1 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-            {windSpeed} km/s
+            {windSpeed} km/h
           </Text>
         </View>
       </View>

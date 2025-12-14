@@ -4,10 +4,19 @@
 
 export type SpeciesKey = "chipura" | "levrek" | "sargoz" | "karagoz" | "mirmir";
 
-export interface DepthResponse {
+export interface DepthDataPoint {
   depth_m: number;
   source: string;
   resolution_m: number;
+}
+
+export interface DepthResponse {
+  depth_m: number; // Primary depth (EMODnet > Copernicus > GEBCO priority)
+  source: string; // Primary source
+  resolution_m: number; // Primary resolution
+  emodnet?: DepthDataPoint; // EMODnet data if available
+  gebco?: DepthDataPoint; // GEBCO data if available
+  copernicus?: DepthDataPoint; // Copernicus data if available
 }
 
 export interface ScoreReason {

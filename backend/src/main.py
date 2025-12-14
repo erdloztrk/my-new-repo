@@ -4,7 +4,7 @@ FastAPI backend service for bathymetry depth queries and species scoring.
 
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from functools import lru_cache
 import rasterio
 import numpy as np
@@ -14,6 +14,8 @@ from pydantic import BaseModel
 
 # Import scoring module
 from .scoring import DepthScorer, get_species_profile
+# Import Copernicus client
+from .copernicus_client import query_copernicus_depth, COPERNICUS_RESOLUTION_M
 
 app = FastAPI(
     title="Bathymetry API",
@@ -30,71 +32,161 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global COG dataset (loaded once at startup)
-_cog_dataset: Optional[rasterio.DatasetReader] = None
+# Global COG datasets (loaded once at startup)
+# EMODnet has higher resolution for coastal areas, GEBCO is fallback
+_emodnet_dataset: Optional[rasterio.DatasetReader] = None
+_gebco_dataset: Optional[rasterio.DatasetReader] = None
 
 
-def get_cog_path() -> Path:
-    """Get path to COG file from environment or default."""
-    cog_path = os.getenv("COG_PATH", "data/processed/gebco_turkey_cog.tif")
-    return Path(cog_path)
+def get_emodnet_cog_path() -> Optional[Path]:
+    """Get path to EMODnet COG file from environment or default."""
+    emodnet_path = os.getenv("EMODNET_COG_PATH", "../data/processed/emodnet_turkey_cog.tif")
+    path = Path(emodnet_path)
+    return path if path.exists() else None
+
+
+def get_gebco_cog_path() -> Path:
+    """Get path to GEBCO COG file from environment or default."""
+    gebco_path = os.getenv("GEBCO_COG_PATH", os.getenv("COG_PATH", "../data/processed/gebco_turkey_cog.tif"))
+    return Path(gebco_path)
 
 
 @lru_cache(maxsize=1000)
-def query_depth(lat: float, lon: float) -> Optional[float]:
+def query_depth_single(lat: float, lon: float, source: str) -> Optional[float]:
     """
-    Query depth at lat/lon from COG.
-    Uses LRU cache keyed by rounded coordinates (0.001° ≈ 111m).
+    Query depth from a single dataset.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+        source: "EMODNET" or "GEBCO"
     
     Returns:
         Depth in meters (negative for below sea level, positive for land)
-        None if out of bounds
+        None if out of bounds or dataset not available
     """
-    global _cog_dataset
+    global _emodnet_dataset, _gebco_dataset
     
-    if _cog_dataset is None:
-        cog_path = get_cog_path()
-        if not cog_path.exists():
-            raise RuntimeError(f"COG file not found: {cog_path}")
-        _cog_dataset = rasterio.open(cog_path)
+    dataset = _emodnet_dataset if source == "EMODNET" else _gebco_dataset
+    if dataset is None:
+        return None
     
     try:
-        # Sample at point (returns array)
-        values = list(_cog_dataset.sample([(lon, lat)]))
-        if not values:
-            return None
-        depth = float(values[0])
-        return depth
-    except Exception as e:
-        # Out of bounds or other error
-        return None
+        values = list(dataset.sample([(lon, lat)]))
+        if values and not np.isnan(values[0]):
+            depth = float(values[0])
+            # EMODnet uses positive values for depth, convert to negative
+            if source == "EMODNET" and depth > 0:
+                depth = -depth
+            return depth
+    except Exception:
+        pass
+    
+    return None
+
+
+@lru_cache(maxsize=1000)
+def query_depth(lat: float, lon: float) -> Tuple[Optional[float], str]:
+    """
+    Query depth at lat/lon from datasets.
+    Tries EMODnet first (higher resolution for coastal areas), then falls back to GEBCO.
+    Uses LRU cache keyed by rounded coordinates (0.001° ≈ 111m).
+    
+    Returns:
+        Tuple of (depth in meters, source name)
+        Depth: negative for below sea level, positive for land
+        Source: "EMODNET_2024" or "GEBCO_2024"
+        Returns (None, None) if out of bounds
+    """
+    # Try EMODnet first
+    emodnet_depth = query_depth_single(lat, lon, "EMODNET")
+    if emodnet_depth is not None:
+        return emodnet_depth, "EMODNET_2024"
+    
+    # Fallback to GEBCO
+    gebco_depth = query_depth_single(lat, lon, "GEBCO")
+    if gebco_depth is not None:
+        return gebco_depth, "GEBCO_2024"
+    
+    return None, None
+
+
+@lru_cache(maxsize=1000)
+def query_depth_both(lat: float, lon: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Query depth from EMODnet and GEBCO datasets.
+    Copernicus is disabled due to slow WMTS service performance.
+    
+    Returns:
+        Tuple of (emodnet_depth, gebco_depth, copernicus_depth)
+        copernicus_depth is always None (disabled)
+        Each depth is negative for below sea level, positive for land
+        None if dataset not available or out of bounds
+    """
+    emodnet_depth = query_depth_single(lat, lon, "EMODNET")
+    gebco_depth = query_depth_single(lat, lon, "GEBCO")
+    
+    # Copernicus disabled - WMTS service is too slow
+    copernicus_depth = None
+    
+    return emodnet_depth, gebco_depth, copernicus_depth
 
 
 @app.on_event("startup")
 async def startup():
-    """Load COG dataset on startup."""
-    global _cog_dataset
-    cog_path = get_cog_path()
-    if cog_path.exists():
-        _cog_dataset = rasterio.open(cog_path)
-        print(f"✓ Loaded COG: {cog_path}")
+    """Load COG datasets on startup."""
+    global _emodnet_dataset, _gebco_dataset
+    
+    # Load EMODnet (optional, higher resolution for coastal areas)
+    emodnet_path = get_emodnet_cog_path()
+    if emodnet_path:
+        try:
+            _emodnet_dataset = rasterio.open(emodnet_path)
+            print(f"✓ Loaded EMODnet COG: {emodnet_path}")
+        except Exception as e:
+            print(f"⚠ Warning: Failed to load EMODnet COG: {e}")
     else:
-        print(f"⚠ Warning: COG file not found: {cog_path}")
+        print("ℹ EMODnet COG not found (optional, using GEBCO only)")
+    
+    # Load GEBCO (required fallback)
+    gebco_path = get_gebco_cog_path()
+    if gebco_path.exists():
+        try:
+            _gebco_dataset = rasterio.open(gebco_path)
+            print(f"✓ Loaded GEBCO COG: {gebco_path}")
+        except Exception as e:
+            print(f"⚠ Warning: Failed to load GEBCO COG: {e}")
+    else:
+        print(f"⚠ Warning: GEBCO COG file not found: {gebco_path}")
+    
+    if _emodnet_dataset is None and _gebco_dataset is None:
+        print("✗ ERROR: No bathymetry datasets loaded!")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    """Close COG dataset on shutdown."""
-    global _cog_dataset
-    if _cog_dataset:
-        _cog_dataset.close()
+    """Close COG datasets on shutdown."""
+    global _emodnet_dataset, _gebco_dataset
+    if _emodnet_dataset:
+        _emodnet_dataset.close()
+    if _gebco_dataset:
+        _gebco_dataset.close()
 
 
 # Response models
-class DepthResponse(BaseModel):
+class DepthDataPoint(BaseModel):
     depth_m: float
-    source: str = "GEBCO_2024"
-    resolution_m: int = 450
+    source: str  # "EMODNET_2024", "GEBCO_2024", or "COPERNICUS_2024"
+    resolution_m: int  # Approximate resolution in meters
+
+
+class DepthResponse(BaseModel):
+    depth_m: float  # Primary depth (EMODnet > Copernicus > GEBCO priority)
+    source: str = "GEBCO_2024"  # Primary source: "EMODNET_2024", "COPERNICUS_2024", or "GEBCO_2024"
+    resolution_m: int = 450  # Primary resolution in meters
+    emodnet: Optional[DepthDataPoint] = None  # EMODnet data if available
+    gebco: Optional[DepthDataPoint] = None  # GEBCO data if available
+    copernicus: Optional[DepthDataPoint] = None  # Copernicus data if available
 
 
 class ScoreReason(BaseModel):
@@ -133,7 +225,11 @@ class ScoreResponse(BaseModel):
 @app.get("/health")
 async def health():
     """Health check."""
-    return {"status": "ok", "cog_loaded": _cog_dataset is not None}
+    return {
+        "status": "ok",
+        "emodnet_loaded": _emodnet_dataset is not None,
+        "gebco_loaded": _gebco_dataset is not None
+    }
 
 
 @app.get("/v1/depth", response_model=DepthResponse)
@@ -142,28 +238,71 @@ async def get_depth(
     lon: float = Query(..., description="Longitude (WGS84)")
 ):
     """
-    Query depth at lat/lon.
+    Query depth at lat/lon from EMODnet, GEBCO, and Copernicus datasets.
     
     Returns:
+        Depth data from all available sources, with primary depth priority:
+        EMODnet > Copernicus > GEBCO (based on resolution/quality)
         Depth in meters (negative = below sea level, positive = land/above sea)
     """
     # Round coordinates for cache key (0.001° ≈ 111m)
     lat_rounded = round(lat, 3)
     lon_rounded = round(lon, 3)
     
-    depth = query_depth(lat_rounded, lon_rounded)
+    # Query all three datasets
+    emodnet_depth, gebco_depth, copernicus_depth = query_depth_both(lat_rounded, lon_rounded)
     
-    if depth is None:
+    # Determine primary depth (priority: EMODnet > Copernicus > GEBCO)
+    if emodnet_depth is not None:
+        primary_depth = emodnet_depth
+        primary_source = "EMODNET_2024"
+        primary_resolution = 115
+    elif copernicus_depth is not None:
+        primary_depth = copernicus_depth
+        primary_source = "COPERNICUS_2024"
+        primary_resolution = COPERNICUS_RESOLUTION_M
+    elif gebco_depth is not None:
+        primary_depth = gebco_depth
+        primary_source = "GEBCO_2024"
+        primary_resolution = 450
+    else:
         raise HTTPException(
             status_code=404,
             detail="Point out of bounds or no data available"
         )
     
-    return DepthResponse(
-        depth_m=depth,
-        source="GEBCO_2024",
-        resolution_m=450
-    )
+    # Build response with all available datasets
+    response_data = {
+        "depth_m": primary_depth,
+        "source": primary_source,
+        "resolution_m": primary_resolution,
+    }
+    
+    # Add EMODnet data if available
+    if emodnet_depth is not None:
+        response_data["emodnet"] = DepthDataPoint(
+            depth_m=emodnet_depth,
+            source="EMODNET_2024",
+            resolution_m=115
+        )
+    
+    # Add Copernicus data if available
+    if copernicus_depth is not None:
+        response_data["copernicus"] = DepthDataPoint(
+            depth_m=copernicus_depth,
+            source="COPERNICUS_2024",
+            resolution_m=COPERNICUS_RESOLUTION_M
+        )
+    
+    # Add GEBCO data if available
+    if gebco_depth is not None:
+        response_data["gebco"] = DepthDataPoint(
+            depth_m=gebco_depth,
+            source="GEBCO_2024",
+            resolution_m=450
+        )
+    
+    return DepthResponse(**response_data)
 
 
 @app.post("/v1/score", response_model=ScoreResponse)
@@ -177,7 +316,7 @@ async def get_score(request: ScoreRequest):
     # Get depth
     lat_rounded = round(request.lat, 3)
     lon_rounded = round(request.lon, 3)
-    depth = query_depth(lat_rounded, lon_rounded)
+    depth, _ = query_depth(lat_rounded, lon_rounded)
     
     if depth is None:
         raise HTTPException(
@@ -239,7 +378,7 @@ async def get_score_get(
     # Get depth
     lat_rounded = round(lat, 3)
     lon_rounded = round(lon, 3)
-    depth = query_depth(lat_rounded, lon_rounded)
+    depth, _ = query_depth(lat_rounded, lon_rounded)
     
     if depth is None:
         raise HTTPException(
@@ -292,12 +431,15 @@ async def get_contours(
     Returns:
         Contour lines for each specified depth interval
     """
-    global _cog_dataset
+    global _emodnet_dataset, _gebco_dataset
     
-    if _cog_dataset is None:
+    # Use EMODnet if available, otherwise GEBCO
+    dataset = _emodnet_dataset if _emodnet_dataset is not None else _gebco_dataset
+    
+    if dataset is None:
         raise HTTPException(
             status_code=503,
-            detail="COG dataset not loaded"
+            detail="No bathymetry dataset loaded"
         )
     
     try:
@@ -309,8 +451,8 @@ async def get_contours(
         bbox = (min_lon, min_lat, max_lon, max_lat)
         
         # Read data window from COG
-        window = rasterio.windows.from_bounds(*bbox, _cog_dataset.transform)
-        window = window.intersection(rasterio.windows.Window(0, 0, _cog_dataset.width, _cog_dataset.height))
+        window = rasterio.windows.from_bounds(*bbox, dataset.transform)
+        window = window.intersection(rasterio.windows.Window(0, 0, dataset.width, dataset.height))
         
         if window.width == 0 or window.height == 0:
             raise HTTPException(
@@ -319,8 +461,8 @@ async def get_contours(
             )
         
         # Read depth data
-        data = _cog_dataset.read(1, window=window)
-        transform = rasterio.windows.transform(window, _cog_dataset.transform)
+        data = dataset.read(1, window=window)
+        transform = rasterio.windows.transform(window, dataset.transform)
         
         # Convert to positive depths for contour calculation (we want negative values as positive)
         depth_data = -data  # Negative depths become positive

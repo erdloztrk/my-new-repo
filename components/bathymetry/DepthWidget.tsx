@@ -1,9 +1,9 @@
 /**
  * Depth widget component for map screen.
- * Displays depth, species score, and recommendations.
+ * Displays depth, species score, and recommendations in a compact table format.
  */
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { View, Text, ActivityIndicator, Pressable, ScrollView, Dimensions } from "react-native";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
@@ -42,27 +42,39 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
     queryScore,
   } = useBathymetryStore();
 
+  // Track which coord+weather combination we've fetched scores for
+  const fetchedKeyRef = useRef<string | null>(null);
 
   // Load all species scores when depth is available
   useEffect(() => {
-    if (selectedCoord && depth && !loading) {
-      // Convert CurrentWeather to WeatherData format
-      const weatherData: WeatherData | undefined = weather ? {
-        seaTemperature: weather.seaTemperature,
-        windSpeed: weather.wind_speed,
-        waveHeight: weather.waveHeight,
-        pressure: weather.pressure,
-        uvi: weather.uvi,
-      } : undefined;
+    if (selectedCoord && depth && !loading && weather) {
+      // Create a unique key for this coord+weather combination
+      const fetchKey = `${selectedCoord.lat.toFixed(6)},${selectedCoord.lon.toFixed(6)},${weather.wind_speed?.toFixed(1) || '0'}`;
       
-      const speciesList: SpeciesKey[] = ["chipura", "levrek", "sargoz", "karagoz", "mirmir"];
-      speciesList.forEach((species) => {
-        if (!scores[species]) {
-          queryScore(selectedCoord.lat, selectedCoord.lon, species, weatherData);
-        }
-      });
+      // Only fetch if this is a new combination
+      if (fetchedKeyRef.current !== fetchKey) {
+        fetchedKeyRef.current = fetchKey;
+        
+        // Convert CurrentWeather to WeatherData format
+        const weatherData: WeatherData = {
+          seaTemperature: weather.seaTemperature,
+          windSpeed: weather.wind_speed,
+          waveHeight: weather.waveHeight,
+          pressure: weather.pressure,
+          uvi: weather.uvi,
+        };
+        
+        const speciesList: SpeciesKey[] = ["chipura", "levrek", "sargoz", "karagoz", "mirmir"];
+        const currentScores = scores; // Capture at fetch time
+        speciesList.forEach((species) => {
+          // Only fetch if score doesn't exist
+          if (!currentScores[species]) {
+            queryScore(selectedCoord.lat, selectedCoord.lon, species, weatherData);
+          }
+        });
+      }
     }
-  }, [selectedCoord, depth, loading, scores, queryScore, weather]);
+  }, [selectedCoord?.lat, selectedCoord?.lon, depth?.depth_m, loading, queryScore, weather?.wind_speed]);
 
   if (!selectedCoord) {
     return null;
@@ -95,106 +107,71 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
     <View
       style={{
         backgroundColor: isDark ? "#0F172A" : "#FFFFFF",
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
-        borderTopWidth: 0,
-        height: SCREEN_HEIGHT * 0.80,
-        maxHeight: SCREEN_HEIGHT * 0.80,
-        minHeight: 400,
+        borderRadius: 16,
+        minHeight: 250,
+        maxHeight: 350,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: -4 },
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
-        shadowRadius: 20,
-        elevation: 24,
+        shadowRadius: 12,
+        elevation: 10,
+        overflow: "hidden",
       }}
     >
-      {/* Handle bar */}
-      <View className="items-center py-3">
-        <View
-          className="w-14 h-1.5 rounded-full"
-          style={{ backgroundColor: isDark ? "#334155" : "#CBD5E1" }}
-        />
-      </View>
-
       {/* Header */}
       <View 
-        className="flex-row items-center justify-between px-6 pb-5"
+        className="flex-row items-center justify-between px-3 py-2"
         style={{ 
           borderBottomWidth: 1,
           borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
-          paddingTop: 4,
         }}
       >
         <View className="flex-row items-center">
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              backgroundColor: isDark ? "#1E293B" : "#F1F5F9",
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: 12,
+          <TablerIcon name="waves" size={16} color={isDark ? "#60A5FA" : "#3B82F6"} strokeWidth={2} />
+          <Text 
+            className="text-xs font-bold ml-2"
+            style={{ 
+              color: isDark ? "#F8FAFC" : "#0F172A",
             }}
           >
-            <TablerIcon name="waves" size={22} color={isDark ? "#60A5FA" : "#3B82F6"} strokeWidth={2.5} />
-          </View>
-          <View>
-            <Text 
-              className="text-xs font-bold tracking-wider uppercase"
-              style={{ 
-                color: isDark ? "#64748B" : "#64748B",
-                letterSpacing: 1.2,
-              }}
-            >
-              DERİNLİK ANALİZİ
-            </Text>
-            <Text 
-              className="text-lg font-bold mt-0.5"
-              style={{ 
-                color: isDark ? "#F8FAFC" : "#0F172A",
-              }}
-            >
-              Deniz Derinliği
-            </Text>
-          </View>
+            Derinlik Analizi
+          </Text>
         </View>
         {onClose && (
           <Pressable 
             onPress={onClose}
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
+              width: 28,
+              height: 28,
+              borderRadius: 6,
               backgroundColor: isDark ? "#1E293B" : "#F1F5F9",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <X size={20} color={isDark ? "#94A3B8" : "#64748B"} weight="bold" />
+            <X size={16} color={isDark ? "#94A3B8" : "#64748B"} weight="bold" />
           </Pressable>
         )}
       </View>
 
       <ScrollView
-        style={{ flex: 1 }}
+        style={{ flex: 1, minHeight: 200 }}
         contentContainerStyle={{ 
-          paddingHorizontal: 24,
-          paddingTop: 24,
-          paddingBottom: 40,
+          padding: 12,
+          flexGrow: 1,
         }}
         showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
       >
         {loading && !depth && (
-          <View className="items-center justify-center py-16">
-            <ActivityIndicator size="large" color="#3B82F6" />
+          <View className="items-center justify-center py-8">
+            <ActivityIndicator size="small" color="#3B82F6" />
             <Text 
-              className="text-sm font-medium mt-4"
+              className="text-xs font-medium mt-2"
               style={{ color: isDark ? "#94A3B8" : "#64748B" }}
             >
-              Derinlik sorgulanıyor...
+              Yükleniyor...
             </Text>
           </View>
         )}
@@ -202,265 +179,392 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
         {error && (
           <View 
             style={{
-              borderRadius: 16,
-              padding: 16,
-              marginBottom: 20,
+              borderRadius: 8,
+              padding: 12,
+              marginBottom: 12,
               backgroundColor: isDark ? "rgba(239, 68, 68, 0.1)" : "#FEF2F2",
               borderWidth: 1,
               borderColor: isDark ? "rgba(239, 68, 68, 0.2)" : "#FECACA",
             }}
           >
             <Text 
-              className="text-sm font-bold mb-2 uppercase tracking-wide"
+              className="text-xs font-bold mb-1"
               style={{ color: isDark ? "#FCA5A5" : "#DC2626" }}
             >
               HATA
             </Text>
             <Text 
-              className="text-xs leading-5"
+              className="text-xs leading-4"
               style={{ color: isDark ? "#F87171" : "#991B1B" }}
             >
               {error}
             </Text>
-            {error.includes("Backend servisi çalışmıyor") && (
-              <Text 
-                className="text-xs mt-3 leading-5 font-medium"
-                style={{ color: isDark ? "#F87171" : "#991B1B" }}
-              >
-                Backend'i başlatmak için: cd backend && uvicorn src.main:app --reload
-              </Text>
-            )}
           </View>
         )}
 
         {depth && (
-          <>
-            {/* Depth Display - Hero Card */}
+          <View
+            style={{
+              borderRadius: 12,
+              backgroundColor: isDark ? "#1E293B" : "#F8FAFC",
+              borderWidth: 1,
+              borderColor: isDark ? "#334155" : "#E2E8F0",
+              overflow: "hidden",
+            }}
+          >
+            {/* Table Header */}
             <View 
               style={{
-                borderRadius: 20,
-                padding: 24,
-                marginBottom: 28,
-                backgroundColor: isDark ? "#1E293B" : "#F8FAFC",
-                borderWidth: 1,
-                borderColor: isDark ? "#334155" : "#E2E8F0",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.05,
-                shadowRadius: 8,
-                elevation: 2,
+                flexDirection: "row",
+                backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
+                borderBottomWidth: 1,
+                borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
+                paddingVertical: 8,
+                paddingHorizontal: 10,
               }}
             >
-              <View className="flex-row items-start justify-between">
-                <View className="flex-1">
-                  <Text 
-                    className="text-xs font-bold uppercase tracking-wider mb-2"
-                    style={{ color: isDark ? "#64748B" : "#64748B", letterSpacing: 1.5 }}
-                  >
-                    MEVCUT DERİNLİK
-                  </Text>
-                  <View className="flex-row items-baseline">
-                    <Text 
-                      className="text-5xl font-black"
-                      style={{ 
-                        color: isDark ? "#F8FAFC" : "#0F172A",
-                        lineHeight: 56,
-                      }}
-                    >
-                      {Math.abs(depth.depth_m).toFixed(1)}
-                    </Text>
-                    <Text 
-                      className="text-2xl font-bold ml-2"
-                      style={{ color: isDark ? "#94A3B8" : "#64748B" }}
-                    >
-                      m
-                    </Text>
-                  </View>
-                </View>
-                <View 
-                  style={{
-                    alignItems: "flex-end",
-                    paddingLeft: 16,
+              <Text 
+                style={{ 
+                  flex: 1, 
+                  fontSize: 10, 
+                  fontWeight: "700", 
+                  color: isDark ? "#94A3B8" : "#64748B",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
+                Tür
+              </Text>
+              <Text 
+                style={{ 
+                  width: 55, 
+                  fontSize: 10, 
+                  fontWeight: "700", 
+                  color: isDark ? "#94A3B8" : "#64748B",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  textAlign: "right",
+                }}
+              >
+                Derinlik
+              </Text>
+              <Text 
+                style={{ 
+                  width: 45, 
+                  fontSize: 10, 
+                  fontWeight: "700", 
+                  color: isDark ? "#94A3B8" : "#64748B",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  textAlign: "right",
+                }}
+              >
+                Skor
+              </Text>
+              <Text 
+                style={{ 
+                  width: 50, 
+                  fontSize: 10, 
+                  fontWeight: "700", 
+                  color: isDark ? "#94A3B8" : "#64748B",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  textAlign: "center",
+                }}
+              >
+                Bölge
+              </Text>
+            </View>
+
+            {/* Depth Row */}
+            <View 
+              style={{
+                flexDirection: "row",
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
+                alignItems: "center",
+              }}
+            >
+              <Text 
+                style={{ 
+                  flex: 1, 
+                  fontSize: 11, 
+                  fontWeight: "600", 
+                  color: isDark ? "#F8FAFC" : "#0F172A",
+                }}
+              >
+                Derinlik
+              </Text>
+              <Text 
+                style={{ 
+                  width: 55, 
+                  fontSize: 11, 
+                  fontWeight: "600", 
+                  color: isDark ? "#60A5FA" : "#3B82F6",
+                  textAlign: "right",
+                }}
+              >
+                {Math.abs(depth.depth_m).toFixed(1)}m
+              </Text>
+              <Text 
+                style={{ 
+                  width: 45, 
+                  fontSize: 11, 
+                  color: isDark ? "#94A3B8" : "#64748B",
+                  textAlign: "right",
+                }}
+              >
+                -
+              </Text>
+              {/* Data source indicator */}
+              <View style={{ width: 50, alignItems: "center" }}>
+                <Text 
+                  style={{ 
+                    fontSize: 8, 
+                    color: depth.source === "EMODNET_2024" ? "#10B981" : "#F59E0B",
+                    fontWeight: "600",
                   }}
                 >
-                  <View
-                    style={{
-                      backgroundColor: isDark ? "#0F172A" : "#FFFFFF",
-                      borderRadius: 10,
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      marginBottom: 6,
-                    }}
-                  >
-                    <Text 
-                      className="text-xs font-bold uppercase tracking-wide"
-                      style={{ color: isDark ? "#64748B" : "#64748B" }}
-                    >
-                      {depth.source === "MOCK_DATA" ? "TEST VERİSİ" : depth.source}
+                  {depth.source === "EMODNET_2024" ? "📊" : "🌊"}
+                </Text>
+              </View>
+            </View>
+            
+            {/* Both Data Sources Info */}
+            {depth && (depth.emodnet || depth.gebco) && (
+              <View 
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 10,
+                  backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
+                  borderBottomWidth: 1,
+                  borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
+                  gap: 6,
+                }}
+              >
+                {/* EMODnet */}
+                {depth.emodnet && (
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ fontSize: 10, marginRight: 6 }}>📊</Text>
+                      <Text style={{ 
+                        fontSize: 9, 
+                        color: "#10B981",
+                        fontWeight: "600",
+                        marginRight: 4,
+                      }}>
+                        EMODnet
+                      </Text>
+                      <Text style={{ 
+                        fontSize: 9, 
+                        color: isDark ? "#64748B" : "#94A3B8",
+                      }}>
+                        ({depth.emodnet.resolution_m}m)
+                      </Text>
+                    </View>
+                    <Text style={{ 
+                      fontSize: 10, 
+                      color: "#10B981",
+                      fontWeight: "600",
+                    }}>
+                      {Math.abs(depth.emodnet.depth_m).toFixed(1)}m
                     </Text>
                   </View>
-                  {depth.source !== "MOCK_DATA" && (
-                    <Text 
-                      className="text-xs font-medium"
-                      style={{ color: isDark ? "#64748B" : "#94A3B8" }}
-                    >
-                      ~{depth.resolution_m}m çözünürlük
+                )}
+                
+                {/* GEBCO */}
+                {depth.gebco && (
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ fontSize: 10, marginRight: 6 }}>🌊</Text>
+                      <Text style={{ 
+                        fontSize: 9, 
+                        color: "#F59E0B",
+                        fontWeight: "600",
+                        marginRight: 4,
+                      }}>
+                        GEBCO
+                      </Text>
+                      <Text style={{ 
+                        fontSize: 9, 
+                        color: isDark ? "#64748B" : "#94A3B8",
+                      }}>
+                        ({depth.gebco.resolution_m}m)
+                      </Text>
+                    </View>
+                    <Text style={{ 
+                      fontSize: 10, 
+                      color: "#F59E0B",
+                      fontWeight: "600",
+                    }}>
+                      {Math.abs(depth.gebco.depth_m).toFixed(1)}m
                     </Text>
-                  )}
-                </View>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Species rows */}
+            {Object.entries(SPECIES_LABELS).map(([speciesKey, speciesLabel]) => {
+              const scoreData = scores[speciesKey as SpeciesKey];
+              if (!scoreData) return null;
+              
+              return (
+                <View 
+                  key={speciesKey}
+                  style={{
+                    flexDirection: "row",
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    borderBottomWidth: 1,
+                    borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
+                    alignItems: "center",
+                  }}
+                >
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+                    <TablerIcon name="fish" size={14} color={isDark ? "#60A5FA" : "#3B82F6"} />
+                    <Text 
+                      style={{ 
+                        fontSize: 11, 
+                        fontWeight: "600", 
+                        color: isDark ? "#F8FAFC" : "#0F172A",
+                        marginLeft: 6,
+                      }}
+                    >
+                      {speciesLabel}
+                    </Text>
+                  </View>
+                  <Text 
+                    style={{ 
+                      width: 55, 
+                      fontSize: 11, 
+                      color: isDark ? "#94A3B8" : "#64748B",
+                      textAlign: "right",
+                    }}
+                  >
+                    {Math.abs(scoreData.depth_m).toFixed(1)}m
+                  </Text>
+                  <Text 
+                    style={{ 
+                      width: 45, 
+                      fontSize: 11, 
+                      fontWeight: "600",
+                      color: getScoreColor(scoreData.score_0_100),
+                      textAlign: "right",
+                    }}
+                  >
+                    {scoreData.score_0_100.toFixed(0)}
+                  </Text>
+                  <View 
+                    style={{ 
+                      width: 50, 
+                      alignItems: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: isDark ? "#60A5FA" : "#3B82F6",
+                  }}
+                />
               </View>
             </View>
 
-            {/* Species Scores */}
-            <View className="mb-2">
-              <Text 
-                className="text-xs font-bold uppercase tracking-wider mb-4"
-                style={{ 
-                  color: isDark ? "#64748B" : "#64748B",
-                  letterSpacing: 1.5,
-                }}
-              >
-                TÜR BAZLI SKORLAR
-              </Text>
+            {/* Species Rows */}
+            {(["chipura", "levrek", "sargoz", "karagoz", "mirmir"] as SpeciesKey[]).map((species, index) => {
+              const score = scores[species];
+              const scoreValue = score?.score_0_100 ?? null;
+              const scoreColor = getScoreColor(scoreValue);
+              const isLast = index === 4;
               
-              {(["chipura", "levrek", "sargoz", "karagoz", "mirmir"] as SpeciesKey[]).map((species) => {
-                const score = scores[species];
-                const scoreValue = score?.score_0_100 ?? null;
-                const scoreColor = getScoreColor(scoreValue);
-                
-                return (
-                  <View
-                    key={species}
-                    style={{
-                      borderRadius: 16,
-                      padding: 18,
-                      marginBottom: 14,
-                      backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
-                      borderWidth: 1,
-                      borderColor: isDark ? "#334155" : "#E2E8F0",
-                      shadowColor: "#000",
-                      shadowOffset: { width: 0, height: 1 },
-                      shadowOpacity: 0.03,
-                      shadowRadius: 4,
-                      elevation: 1,
+              return (
+                <View
+                  key={species}
+                  style={{
+                    flexDirection: "row",
+                    paddingVertical: 8,
+                    paddingHorizontal: 10,
+                    borderBottomWidth: isLast ? 0 : 1,
+                    borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
+                    alignItems: "center",
+                  }}
+                >
+                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+                    <Fish size={12} color={scoreColor} weight="fill" />
+                    <Text 
+                      style={{ 
+                        fontSize: 11, 
+                        fontWeight: "600", 
+                        color: isDark ? "#F8FAFC" : "#0F172A",
+                        marginLeft: 6,
+                      }}
+                    >
+                      {SPECIES_LABELS[species]}
+                    </Text>
+                  </View>
+                  <Text 
+                    style={{ 
+                      width: 55, 
+                      fontSize: 11, 
+                      color: isDark ? "#94A3B8" : "#64748B",
+                      textAlign: "right",
                     }}
                   >
-                    <View className="flex-row items-center justify-between mb-3">
-                      <View className="flex-row items-center flex-1">
-                        <View
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 10,
-                            backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginRight: 12,
-                          }}
-                        >
-                          <Fish size={20} color={scoreColor} weight="fill" />
-                        </View>
-                        <Text 
-                          className="text-base font-bold"
-                          style={{ 
-                            color: isDark ? "#F8FAFC" : "#0F172A",
-                          }}
-                        >
-                          {SPECIES_LABELS[species]}
-                        </Text>
-                      </View>
-                      {score ? (
-                        <View className="flex-row items-baseline">
-                          <Text
-                            className="text-2xl font-black"
-                            style={{ 
-                              color: scoreColor,
-                              lineHeight: 28,
-                            }}
-                          >
-                            {score.score_0_100.toFixed(0)}
-                          </Text>
-                          <Text 
-                            className="text-sm font-bold ml-1"
-                            style={{ color: isDark ? "#64748B" : "#94A3B8" }}
-                          >
-                            /100
-                          </Text>
-                        </View>
-                      ) : (
-                        <ActivityIndicator size="small" color="#3B82F6" />
-                      )}
+                    {score ? `${Math.abs(score.depth_m || depth.depth_m).toFixed(1)}m` : "-"}
+                  </Text>
+                  {score ? (
+                    <Text 
+                      style={{ 
+                        width: 45, 
+                        fontSize: 11, 
+                        fontWeight: "700", 
+                        color: scoreColor,
+                        textAlign: "right",
+                      }}
+                    >
+                      {score.score_0_100.toFixed(0)}
+                    </Text>
+                  ) : (
+                    <View style={{ width: 45, alignItems: "flex-end" }}>
+                      <ActivityIndicator size="small" color="#3B82F6" />
                     </View>
-                    
-                    {score && (
-                      <>
-                        {/* Progress Bar */}
-                        <View 
-                          style={{
-                            height: 6,
-                            borderRadius: 3,
-                            backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
-                            marginBottom: 12,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <View
-                            style={{
-                              height: "100%",
-                              width: `${score.score_0_100}%`,
-                              backgroundColor: scoreColor,
-                              borderRadius: 3,
-                            }}
-                          />
-                        </View>
-                        
-                        {/* Zone & Reason */}
-                        <View>
-                          <View className="flex-row items-center mb-2">
-                            <View
-                              style={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: 4,
-                                backgroundColor: getZoneColor(score.zone_label),
-                                marginRight: 8,
-                              }}
-                            />
-                            <Text 
-                              className="text-xs font-bold uppercase tracking-wide"
-                              style={{ 
-                                color: isDark ? "#94A3B8" : "#64748B",
-                                letterSpacing: 0.5,
-                              }}
-                            >
-                              {score.zone_label === "optimal" ? "OPTİMAL" : 
-                               score.zone_label === "shallow" ? "SIĞ" :
-                               score.zone_label === "deep" ? "DERİN" : "KARA"}
-                            </Text>
-                          </View>
-                          
-                          {score.reasons.length > 0 && (
-                            <Text 
-                              className="text-xs leading-5"
-                              style={{ 
-                                color: isDark ? "#94A3B8" : "#64748B",
-                                lineHeight: 18,
-                              }}
-                            >
-                              {score.reasons[0].message}
-                            </Text>
-                          )}
-                        </View>
-                      </>
+                  )}
+                  <View 
+                    style={{ 
+                      width: 50, 
+                      alignItems: "center",
+                    }}
+                  >
+                    {score ? (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: getZoneColor(score.zone_label),
+                        }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: isDark ? "#334155" : "#CBD5E1",
+                        }}
+                      />
                     )}
                   </View>
-                );
-              })}
-            </View>
-          </>
+                </View>
+              );
+            })}
+          </View>
         )}
       </ScrollView>
     </View>
   );
 }
-

@@ -77,7 +77,7 @@ export function WeatherDetailsWidget({
         <View className="flex-1 items-center">
           <MeteoconsIcon xml={windIcon} size={32} />
           <Text className={`text-xs font-semibold mt-1 ${isDark ? "text-card-foreground-dark" : "text-card-foreground"}`}>
-            {windSpeedKmh} km/s
+            {windSpeedKmh} km/h
           </Text>
           <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
             B{beaufortScale}

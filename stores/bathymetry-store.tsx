@@ -47,7 +47,13 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
   cache: new Map(),
   selectedCoord: null,
   depth: null,
-  scores: {},
+  scores: {
+    chipura: null,
+    levrek: null,
+    sargoz: null,
+    karagoz: null,
+    mirmir: null,
+  },
   loading: false,
   error: null,
   contours: [],
@@ -72,7 +78,16 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
         get().queryDepth(coord.lat, coord.lon);
       }
     } else {
-      set({ depth: null, scores: {} });
+      set({
+        depth: null,
+        scores: {
+          chipura: null,
+          levrek: null,
+          sargoz: null,
+          karagoz: null,
+          mirmir: null,
+        },
+      });
     }
   },
 
@@ -80,17 +95,9 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
     const key = getCacheKey(lat, lon);
     
     set({ loading: true, error: null });
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-store.tsx:queryDepth:entry',message:'queryDepth called',data:{lat,lon,key},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
-    
+
     try {
       const depth = await getDepth(lat, lon);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-store.tsx:queryDepth:success',message:'getDepth returned',data:{depth_m:depth.depth_m,source:depth.source,isMock:depth.source==='MOCK_DATA'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       
       // If we got mock data, don't show error (it's a fallback, not a real error)
       const isMockData = depth.source === "MOCK_DATA";
@@ -114,11 +121,7 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to query depth";
       console.error("[BathymetryStore] queryDepth error:", errorMessage);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-store.tsx:queryDepth:error',message:'Error in queryDepth',data:{error:errorMessage,lat,lon,hasCache:!!get().cache.get(key)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      
+
       // Try to use stale cache if available
       const cached = get().cache.get(key);
       if (cached?.depth) {
@@ -225,9 +228,9 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
     }
   },
 
-  clearCache: () => {
+  clearCache: async () => {
     set({ cache: new Map() });
-    AsyncStorage.removeItem(CACHE_KEY);
+    await AsyncStorage.removeItem(CACHE_KEY);
   },
 }));
 

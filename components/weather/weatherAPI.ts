@@ -1,4 +1,5 @@
 import { WeatherResponse, AirQuality, LocationCoords, CurrentWeather, DailyForecast } from "./weatherTypes";
+import { logWarn, logError } from "@/lib/logger";
 
 const OPENWEATHER_API_KEY = process.env.EXPO_PUBLIC_OPENWEATHER_KEY;
 // Using free tier compatible APIs
@@ -10,11 +11,7 @@ const BASE_URL_AIR_POLLUTION = "https://api.openweathermap.org/data/2.5/air_poll
 const BASE_URL_MARINE = "https://marine-api.open-meteo.com/v1/marine";
 
 if (!OPENWEATHER_API_KEY) {
-  console.warn(
-    "EXPO_PUBLIC_OPENWEATHER_KEY is not set. Weather features will not work."
-  );
-} else {
-  console.log("OpenWeather API key loaded:", OPENWEATHER_API_KEY.substring(0, 8) + "...");
+  logWarn("EXPO_PUBLIC_OPENWEATHER_KEY is not set. Weather features will not work.");
 }
 
 /**
@@ -33,8 +30,7 @@ export async function getWeather(
     const currentResponse = await fetch(currentUrl);
 
     if (!currentResponse.ok) {
-      const errorText = await currentResponse.text();
-      console.error("Current weather API error:", currentResponse.status, errorText);
+      logError("Current weather API error:", currentResponse.status);
       throw new Error(`Weather API error: ${currentResponse.status}`);
     }
 
@@ -45,8 +41,7 @@ export async function getWeather(
     const forecastResponse = await fetch(forecastUrl);
 
     if (!forecastResponse.ok) {
-      const errorText = await forecastResponse.text();
-      console.error("Forecast API error:", forecastResponse.status, errorText);
+      logError("Forecast API error:", forecastResponse.status);
       throw new Error(`Forecast API error: ${forecastResponse.status}`);
     }
 
@@ -96,34 +91,24 @@ export async function getWeather(
       // Try 1: Standard marine API with forecast_days
       try {
         const marineUrl1 = `${BASE_URL_MARINE}?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=sea_surface_temperature,wave_height&forecast_days=1&timezone=auto`;
-        // #region agent log
-        console.log("[marine] trying URL 1:", marineUrl1);
-        // #endregion
         marineResponse = await fetch(marineUrl1);
-        if (marineResponse.ok) {
+        if (marineResponse && marineResponse.ok) {
           marineData = await marineResponse.json();
         }
-      } catch (e) {
-        // #region agent log
-        console.log("[marine] URL 1 failed:", e);
-        // #endregion
+      } catch {
+        // Continue to next attempt
       }
       
       // Try 2: Without forecast_days
       if (!marineResponse || !marineResponse.ok) {
         try {
           const marineUrl2 = `${BASE_URL_MARINE}?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=sea_surface_temperature,wave_height&timezone=auto`;
-          // #region agent log
-          console.log("[marine] trying URL 2:", marineUrl2);
-          // #endregion
           marineResponse = await fetch(marineUrl2);
-          if (marineResponse.ok) {
+          if (marineResponse && marineResponse.ok) {
             marineData = await marineResponse.json();
           }
-        } catch (e) {
-          // #region agent log
-          console.log("[marine] URL 2 failed:", e);
-          // #endregion
+        } catch {
+          // Continue to next attempt
         }
       }
       
@@ -131,25 +116,16 @@ export async function getWeather(
       if (!marineResponse || !marineResponse.ok) {
         try {
           const marineUrl3 = `https://api.open-meteo.com/v1/marine?latitude=${coords.latitude}&longitude=${coords.longitude}&hourly=sea_surface_temperature,wave_height&timezone=auto`;
-          // #region agent log
-          console.log("[marine] trying URL 3:", marineUrl3);
-          // #endregion
           marineResponse = await fetch(marineUrl3);
-          if (marineResponse.ok) {
+          if (marineResponse && marineResponse.ok) {
             marineData = await marineResponse.json();
           }
-        } catch (e) {
-          // #region agent log
-          console.log("[marine] URL 3 failed:", e);
-          // #endregion
+        } catch {
+          // Continue gracefully - marine data is optional
         }
       }
       
       if (marineResponse && marineResponse.ok && marineData) {
-        // #region agent log
-        console.log("[marine] API success, data keys:", Object.keys(marineData));
-        // #endregion
-        
         // Get current hour's data (or nearest available)
         if (marineData.hourly && marineData.hourly.time && marineData.hourly.time.length > 0) {
           const now = new Date();
@@ -195,12 +171,9 @@ export async function getWeather(
             waveHeight = Math.round(rawWaveHeight * 10) / 10;
           }
         }
-      } else {
-        const errorText = await marineResponse.text();
-        console.warn("Open-Meteo Marine API response not OK:", marineResponse.status, errorText.substring(0, 200));
       }
-    } catch (marineError: any) {
-      console.warn("Error fetching marine data from Open-Meteo:", marineError);
+      // If all attempts fail, continue gracefully - marine data is optional
+    } catch {
       // Continue without marine data - it's optional
     }
 
@@ -259,7 +232,7 @@ export async function getWeather(
 
     return response;
   } catch (error) {
-    console.error("Error fetching weather:", error);
+    logError("Error fetching weather:", error);
     return null;
   }
 }
@@ -285,7 +258,7 @@ export async function getAQI(
     const data: AirQuality = await response.json();
     return data;
   } catch (error) {
-    console.error("Error fetching air quality:", error);
+    logError("Error fetching air quality:", error);
     return null;
   }
 }

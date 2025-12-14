@@ -16,7 +16,7 @@ export function PhosphorIcon({
   color = "currentColor",
   weight = "regular" 
 }: PhosphorIconProps) {
-  const IconComponent = PhosphorIcons[name];
+  const IconComponent = (PhosphorIcons as Record<string, React.ComponentType<any>>)[name];
   
   if (!IconComponent) {
     console.warn(`PhosphorIcon: Icon "${name}" not found`);

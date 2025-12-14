@@ -5,6 +5,7 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import type { DepthResponse, ScoreResponse, SpeciesKey, WeatherData, ContourResponse } from "@/types/bathymetry";
+import { logDebug, logWarn, logError } from "@/lib/logger";
 
 // For development: use localhost for iOS simulator, 10.0.2.2 for Android emulator, or your computer's IP for physical device
 // Lazy evaluation to avoid Platform access at module load time
@@ -36,18 +37,12 @@ const getApiBaseUrl = (): string => {
   
   if (process.env.EXPO_PUBLIC_BATHYMETRY_API_URL) {
     _cachedApiBaseUrl = process.env.EXPO_PUBLIC_BATHYMETRY_API_URL;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getApiBaseUrl:env',message:'Using env var for API URL',data:{url:_cachedApiBaseUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     return _cachedApiBaseUrl;
   }
   // If running in Expo Go/dev client on LAN, derive backend host from Expo hostUri
   const expoHostBase = resolveHostFromExpo();
   if (expoHostBase) {
     _cachedApiBaseUrl = expoHostBase;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getApiBaseUrl:expoHost',message:'Using Expo hostUri-derived URL',data:{url:_cachedApiBaseUrl,hostUri:(Constants.expoConfig as {hostUri?:string}|undefined)?.hostUri},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     return _cachedApiBaseUrl;
   }
 
@@ -55,29 +50,20 @@ const getApiBaseUrl = (): string => {
   try {
     if (Platform.OS === "ios") {
       _cachedApiBaseUrl = "http://127.0.0.1:8000";
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getApiBaseUrl:ios',message:'Using iOS URL (127.0.0.1)',data:{url:_cachedApiBaseUrl,platform:Platform.OS},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       return _cachedApiBaseUrl;
     }
     // Android emulator needs 10.0.2.2
     if (Platform.OS === "android") {
       _cachedApiBaseUrl = "http://10.0.2.2:8000";
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getApiBaseUrl:android',message:'Using Android URL (10.0.2.2)',data:{url:_cachedApiBaseUrl,platform:Platform.OS},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       return _cachedApiBaseUrl;
     }
   } catch (e) {
     // Platform not available yet, use default
-    console.warn("[BathymetryService] Platform not available, using default localhost");
+    logWarn("[BathymetryService] Platform not available, using default localhost");
   }
   
   // Default: localhost
   _cachedApiBaseUrl = "http://localhost:8000";
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getApiBaseUrl:default',message:'Using default localhost URL',data:{url:_cachedApiBaseUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   return _cachedApiBaseUrl;
 };
 
@@ -121,17 +107,12 @@ export async function getDepth(
 ): Promise<DepthResponse> {
   const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}/v1/depth?lat=${lat}&lon=${lon}`;
-  console.log("[BathymetryService] Fetching depth from:", url);
-  console.log("[BathymetryService] API Base URL:", apiBaseUrl);
-  
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getDepth:entry',message:'getDepth called',data:{lat,lon,url,apiBaseUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
+  logDebug("[BathymetryService] Fetching depth from:", url);
   
   try {
     // Create AbortController for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout (increased for slow backend)
     
     const response = await fetch(url, {
       method: "GET",
@@ -152,44 +133,23 @@ export async function getDepth(
     }
 
     const data = await response.json();
-    console.log("[BathymetryService] ✅ Backend response received:", JSON.stringify(data, null, 2));
-    console.log("[BathymetryService] Source:", data.source);
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getDepth:success',message:'Backend response received',data:{depth_m:data.depth_m,source:data.source,status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
+    logDebug("[BathymetryService] Backend response received, source:", data.source);
     
     return data;
   } catch (error) {
-    // #region agent log
-    const errorDetails = error instanceof Error ? {name:error.name,message:error.message,stack:error.stack?.substring(0,200)} : {type:typeof error,value:String(error)};
-    fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getDepth:error',message:'Error caught in getDepth',data:{error:errorDetails,url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    
     if (error instanceof Error) {
       if (error.name === "AbortError") {
         // Use mock data on timeout
-        console.warn("[BathymetryService] Request timeout, using mock data");
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getDepth:mock-timeout',message:'Using mock data due to timeout',data:{lat,lon},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
+        logWarn(`[BathymetryService] Request timeout after 30s (${url}), using mock data`);
         return getMockDepth(lat, lon);
       }
       if (error.message.includes("Network request failed")) {
         // Use mock data when backend is unavailable (for UI testing)
-        console.warn("[BathymetryService] ⚠️ Network request failed, using mock data");
-        console.warn("[BathymetryService] URL attempted:", url);
-        console.warn("[BathymetryService] Error:", error.message);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getDepth:mock-network',message:'Using mock data due to network failure',data:{lat,lon,errorMsg:error.message,url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
+        logWarn("[BathymetryService] Network request failed, using mock data");
         return getMockDepth(lat, lon);
       }
       // For other errors, log and throw
-      console.error("[BathymetryService] Error fetching depth:", error);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/2f8b3f43-cf07-4027-b869-304f9e7401b2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bathymetry-service.ts:getDepth:throw',message:'Throwing error (not network/timeout)',data:{error:errorDetails},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
+      logError("[BathymetryService] Error fetching depth:", error);
       throw error;
     }
     throw new Error("Unknown error fetching depth");
@@ -212,7 +172,7 @@ function getMockScore(lat: number, lon: number, species: SpeciesKey): ScoreRespo
   // Species-specific depth preferences (simplified)
   // These match the backend scoring profiles
   let score: number;
-  let zone: string;
+  let zone: "shallow" | "optimal" | "deep" | "land";
   let reason: string;
   
   switch (species) {
@@ -286,7 +246,7 @@ function getMockScore(lat: number, lon: number, species: SpeciesKey): ScoreRespo
       
     default:
       score = 50;
-      zone = "unknown";
+      zone = "shallow";
       reason = "Tür için skor hesaplanamadı.";
   }
   
@@ -297,6 +257,7 @@ function getMockScore(lat: number, lon: number, species: SpeciesKey): ScoreRespo
     depth_m: mockDepth,
     score_0_100: score,
     zone_label: zone,
+    species,
     reasons: [
       { type: "depth", message: reason },
       { type: "mock", message: "Mock veri - Backend çalışmıyor." },
@@ -316,12 +277,12 @@ export async function getScore(
 ): Promise<ScoreResponse> {
   const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}/v1/score`;
-  console.log("[BathymetryService] Fetching score from:", url);
+  logDebug("[BathymetryService] Fetching score from:", url);
   
   try {
     // Create AbortController for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout (increased for slow backend)
     
     const requestBody = {
       lat,
@@ -354,12 +315,13 @@ export async function getScore(
     }
 
     const data = await response.json();
-    console.log("[BathymetryService] Score response:", data);
+    logDebug("[BathymetryService] Score response received");
     return data;
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === "AbortError") {
         // Use mock data on timeout
+        logWarn(`[BathymetryService] Request timeout after 30s (${url}), using mock data`);
         return getMockScore(lat, lon, species);
       }
       if (error.message.includes("Network request failed")) {
@@ -368,7 +330,7 @@ export async function getScore(
         return getMockScore(lat, lon, species);
       }
       // For other errors, log and throw
-      console.error("[BathymetryService] Error fetching score:", error);
+      logError("[BathymetryService] Error fetching score:", error);
       throw error;
     }
     throw new Error("Unknown error fetching score");
@@ -387,7 +349,7 @@ export async function getContours(
 ): Promise<ContourResponse> {
   const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}/v1/contours?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}&intervals=${intervals}`;
-  console.log("[BathymetryService] Fetching contours from:", url);
+  logDebug("[BathymetryService] Fetching contours from:", url);
   
   try {
     const controller = new AbortController();
@@ -411,7 +373,7 @@ export async function getContours(
     const data = await response.json();
     return data;
   } catch (error) {
-    console.error("[BathymetryService] Error fetching contours:", error);
+    logError("[BathymetryService] Error fetching contours:", error);
     throw error;
   }
 }

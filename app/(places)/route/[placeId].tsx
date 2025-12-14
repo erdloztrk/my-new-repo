@@ -11,7 +11,7 @@ import * as Location from "expo-location";
 import { Place } from "@/types/place";
 
 // Dark mode map style for Google Maps (Android)
-const darkMapStyle = [
+const darkMapStyle: any[] = [
   { elementType: "geometry", stylers: [{ color: "#242538" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#242538" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#94A3B8" }] },
@@ -32,7 +32,7 @@ const darkMapStyle = [
   },
 ];
 
-const lightMapStyle = [];
+const lightMapStyle: any[] = [];
 
 export default function RouteScreen() {
   const { placeId } = useLocalSearchParams<{ placeId: string }>();
@@ -67,6 +67,12 @@ export default function RouteScreen() {
     try {
       if (!placeId) return;
       const placeData = await getPlaceById(placeId);
+
+      if (!placeData) {
+        setError("Place not found");
+        setLoading(false);
+        return;
+      }
       
       // Validate place coordinates
       if (!placeData.coordinates || 

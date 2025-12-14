@@ -135,7 +135,7 @@ const translations: Record<Language, Record<string, string>> = {
     category_bookstores: "Kitapçılar",
     
     // UV Index descriptions
-    uv_desc_none: "Bulutlu hava koşulları gece boyunca devam ediyor, sabaha kadar sürecek. Rüzgar esintileri saatte {windSpeed} km/s'ye kadar çıkıyor.",
+    uv_desc_none: "Bulutlu hava koşulları gece boyunca devam ediyor, sabaha kadar sürecek. Rüzgar esintileri saatte {windSpeed} km/h'ye kadar çıkıyor.",
     uv_desc_low: "Düşük UV indeksi. Dışarıda güvendesiniz.",
     uv_desc_moderate: "Orta UV indeksi. Bazı koruma gerekli.",
     uv_desc_high: "Yüksek UV indeksi. Koruma gerekli.",

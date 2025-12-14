@@ -41,7 +41,7 @@ export function WindBeaufortWidget({
               {windSpeedKmh}
             </Text>
             <Text className="text-xs text-muted dark:text-muted-dark">
-              km/s
+              km/h
             </Text>
           </View>
           <View className="flex-row items-center">

@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { View, Text, ActivityIndicator, Platform, Animated, Pressable, Image, Linking, Dimensions, ScrollView, Modal } from "react-native";
+import { View, Text, ActivityIndicator, Platform, Animated, Pressable, Image, Linking, Dimensions, ScrollView } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import MapView, { Region, Marker, Circle as MapCircle, Polyline, PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { Region, Marker, Circle as MapCircle } from "react-native-maps";
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
-import { PersonSimpleWalk, Car, MapPin, Star, X, Sliders, Check } from "phosphor-react-native";
+import { PersonSimpleWalk, Car, MapPin, Star, X, Sliders, Check, Globe } from "phosphor-react-native";
 import { FilterAccordion } from "@/components/filters/FilterAccordion";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
@@ -13,12 +13,10 @@ import { Place } from "@/types/place";
 import { Category } from "@/types/category";
 import { TablerIcon } from "@/components/icons/TablerIcon";
 import { CATEGORIES } from "@/utils/categories";
-import { DepthWidget } from "@/components/bathymetry/DepthWidget";
 import { useBathymetryStore } from "@/stores/bathymetry-store";
 import { getWeather } from "@/components/weather/weatherAPI";
 import type { CurrentWeather } from "@/components/weather/weatherTypes";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import { logDebug, logError } from "@/lib/logger";
 
 // Place Marker Component
 interface PlaceMarkerProps {
@@ -40,8 +38,7 @@ function PlaceMarker({ place, categoryColor, isSelected, index, onPress }: Place
       tracksViewChanges={false}
       onPress={(e) => {
         e.stopPropagation();
-        // Close depth widget when place is selected
-        useBathymetryStore.getState().setSelectedCoord(null);
+        // Close depth pin when place is selected
         onPress();
       }}
     >
@@ -104,6 +101,8 @@ const darkMapStyle = [
   { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#94A3B8" }] },
 ];
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
 export default function MapScreen() {
   const { colorScheme } = useTheme();
   const { t } = useI18n();
@@ -119,7 +118,7 @@ export default function MapScreen() {
   // Filter states
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [radius, setRadius] = useState<number>(5); // km cinsinden
-  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]); // Boş array = tüm kategoriler seçili
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]); // Boş array = hiçbir kategori gösterilmez (sadece kullanıcı konumu)
   
   // Accordion states
   const [isRadiusExpanded, setIsRadiusExpanded] = useState(false);
@@ -131,17 +130,21 @@ export default function MapScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const cardAnim = useRef(new Animated.Value(0)).current;
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
-  
-  // Bathymetry store
-  const selectedCoord = useBathymetryStore((state) => state.selectedCoord);
-  const contours = useBathymetryStore((state) => state.contours);
-  const queryContours = useBathymetryStore((state) => state.queryContours);
+  const mapRef = useRef<MapView>(null);
   
   // Weather state
   const [weather, setWeather] = useState<CurrentWeather | null>(null);
   
-  // Debounce timer for contour queries
-  const contourQueryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Map follow state
+  const [followMe, setFollowMe] = useState(true);
+  const initialRegionSet = useRef(false);
+  const userIsInteracting = useRef(false);
+  
+  // Depth pin state (for marking selected water point)
+  const [depthPin, setDepthPin] = useState<{ lat: number; lon: number } | null>(null);
+  
+  // Map type state (standard or satellite)
+  const [mapType, setMapType] = useState<"standard" | "satellite">("standard");
 
   // Pulse animation for user location marker
   useEffect(() => {
@@ -183,44 +186,6 @@ export default function MapScreen() {
       });
     }
   }, [location]);
-  
-  // Load contours when region changes (debounced)
-  useEffect(() => {
-    if (!region) return;
-    
-    // Clear previous timer
-    if (contourQueryTimer.current) {
-      clearTimeout(contourQueryTimer.current);
-    }
-    
-    // Debounce contour queries (wait 500ms after region stops changing)
-    contourQueryTimer.current = setTimeout(() => {
-      const minLat = region.latitude - region.latitudeDelta / 2;
-      const maxLat = region.latitude + region.latitudeDelta / 2;
-      const minLon = region.longitude - region.longitudeDelta / 2;
-      const maxLon = region.longitude + region.longitudeDelta / 2;
-      
-      queryContours(minLat, maxLat, minLon, maxLon);
-    }, 500);
-    
-    return () => {
-      if (contourQueryTimer.current) {
-        clearTimeout(contourQueryTimer.current);
-      }
-    };
-  }, [region, queryContours]);
-  
-  // Helper function to get contour color based on depth interval
-  const getContourColor = (interval: number): string => {
-    // Deeper = darker blue
-    if (interval >= 100) return isDark ? "#1E3A8A" : "#1E40AF"; // Very deep
-    if (interval >= 50) return isDark ? "#1E40AF" : "#2563EB"; // Deep
-    if (interval >= 30) return isDark ? "#2563EB" : "#3B82F6"; // Moderate-deep
-    if (interval >= 20) return isDark ? "#3B82F6" : "#60A5FA"; // Moderate
-    if (interval >= 15) return isDark ? "#60A5FA" : "#93C5FD"; // Shallow-moderate
-    if (interval >= 10) return isDark ? "#93C5FD" : "#BFDBFE"; // Shallow
-    return isDark ? "#BFDBFE" : "#DBEAFE"; // Very shallow
-  };
 
   // Card animation
   useEffect(() => {
@@ -303,8 +268,14 @@ export default function MapScreen() {
     }, [startLocationTracking, loadPlaces])
   );
 
+  // Set initial region once, then only update when followMe is active and user is not interacting
   useEffect(() => {
-    if (places.length > 0 && location) {
+    // Don't update region if user is manually panning/zooming
+    if (userIsInteracting.current) {
+      return;
+    }
+
+    if (places.length > 0 && location && followMe) {
       const allLatitudes = [location.coords.latitude, ...places.map(p => p.coordinates.latitude)];
       const allLongitudes = [location.coords.longitude, ...places.map(p => p.coordinates.longitude)];
       
@@ -325,15 +296,27 @@ export default function MapScreen() {
         latitudeDelta: latDelta,
         longitudeDelta: lngDelta,
       });
-    } else if (location && !region) {
+      initialRegionSet.current = true;
+    } else if (location && !initialRegionSet.current) {
+      // Set initial region only once
       setRegion({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       });
+      initialRegionSet.current = true;
+    } else if (location && followMe && !userIsInteracting.current && initialRegionSet.current) {
+      // Update region when location changes and followMe is active
+      // Use current region's deltas to maintain zoom level
+      setRegion((prevRegion) => ({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: prevRegion?.latitudeDelta || 0.01,
+        longitudeDelta: prevRegion?.longitudeDelta || 0.01,
+      }));
     }
-  }, [places, location]);
+  }, [places, location, followMe]);
 
   const getCategoryColor = (category: Category): string => {
     const colors: Record<Category, string> = {
@@ -417,8 +400,12 @@ export default function MapScreen() {
   const filteredPlaces = places.filter((place) => {
     if (!location || !place.coordinates) return false;
     
-    // Kategori filtresi: selectedCategories boşsa tüm kategoriler, değilse sadece seçili olanlar
-    if (selectedCategories.length > 0 && !selectedCategories.includes(place.category)) {
+    // Kategori filtresi: selectedCategories boşsa hiçbir mekan gösterilmez (sadece kullanıcı konumu)
+    // selectedCategories doluysa sadece seçili kategoriler gösterilir
+    if (selectedCategories.length === 0) {
+      return false; // Başlangıçta hiçbir mekan gösterilmez
+    }
+    if (!selectedCategories.includes(place.category)) {
       return false;
     }
     
@@ -437,8 +424,11 @@ export default function MapScreen() {
     ? places.filter((place) => {
         if (!location || !place.coordinates) return false;
         
-        // Kategori filtresi: pendingCategories boşsa tüm kategoriler
-        if (pendingCategories.length > 0 && !pendingCategories.includes(place.category)) {
+        // Kategori filtresi: pendingCategories boşsa hiçbir mekan gösterilmez
+        if (pendingCategories.length === 0) {
+          return false;
+        }
+        if (!pendingCategories.includes(place.category)) {
           return false;
         }
         
@@ -474,7 +464,7 @@ export default function MapScreen() {
         await Linking.openURL(url);
       }
     } catch (error) {
-      console.error("Error opening maps app:", error);
+      logError("Error opening maps app:", error);
     }
   };
 
@@ -518,41 +508,67 @@ export default function MapScreen() {
       <MapView
         style={{ flex: 1, zIndex: 0 }}
         region={region}
+        ref={mapRef}
+        onPanDrag={() => {
+          userIsInteracting.current = true;
+          setFollowMe(false);
+        }}
+        onRegionChangeComplete={(r) => {
+          // Only update region if user is not interacting (programmatic change)
+          // or if this is a user interaction (userIsInteracting is true)
+          if (userIsInteracting.current || !followMe) {
+            setRegion(r);
+            // Reset interaction flag after a delay to allow programmatic updates
+            setTimeout(() => {
+              userIsInteracting.current = false;
+            }, 100);
+          }
+        }}
         showsUserLocation={false}
         showsMyLocationButton={false}
         followsUserLocation={false}
-        mapType="standard"
+        mapType={mapType}
         showsPointsOfInterest={false}
         showsBuildings={false}
         showsTraffic={false}
         showsIndoors={false}
         userInterfaceStyle={isDark ? "dark" : "light"}
-        customMapStyle={Platform.OS === "android" ? (isDark ? darkMapStyle : lightMapStyle) : undefined}
+        customMapStyle={Platform.OS === "android" && mapType === "standard" ? (isDark ? darkMapStyle : lightMapStyle) : undefined}
         onPress={async (e) => {
           setSelectedPlace(null);
           // Handle map tap for depth query - only open widget for water (depth < 0)
           const coordinate = e.nativeEvent?.coordinate;
           if (coordinate) {
             const { latitude, longitude } = coordinate;
-            console.log("[Map] Tap detected:", { latitude, longitude });
+            logDebug("[Map] Tap detected:", { latitude, longitude });
             
             // Check depth first - only open widget if it's water (depth < 0)
+            // Strict check: depth must be negative (water), not just < 0
             try {
               const { getDepth } = await import("@/services/bathymetry-service");
               const depthResponse = await getDepth(latitude, longitude);
               
-              // Only open widget if depth is negative (water) or if depth query failed (might be water)
-              if (depthResponse.depth_m < 0) {
-                useBathymetryStore.getState().setSelectedCoord({ lat: latitude, lon: longitude });
+              // Strict check: Only open detail page if depth is negative (water)
+              // depth_m < 0 means water, depth_m >= 0 means land
+              if (depthResponse.depth_m !== null && depthResponse.depth_m < 0) {
+                // Set pin and navigate to detail page (not widget)
+                setDepthPin({ lat: latitude, lon: longitude });
+                router.push({
+                  pathname: "/(places)/bathymetry",
+                  params: {
+                    lat: latitude.toString(),
+                    lon: longitude.toString(),
+                  },
+                });
               } else {
-                // Land or positive elevation - don't open widget
-                console.log("[Map] Land detected, not opening depth widget");
-                useBathymetryStore.getState().setSelectedCoord(null);
+                // Land or positive elevation or null - do nothing
+                logDebug("[Map] Land detected (depth >= 0 or null), not opening depth widget");
+                setDepthPin(null);
               }
             } catch (error) {
-              // If depth query fails, don't open widget (safer default)
-              console.log("[Map] Depth query failed, not opening widget:", error);
-              useBathymetryStore.getState().setSelectedCoord(null);
+              // If depth query failed, don't open widget (safer default - assume land)
+              logDebug("[Map] Depth query failed, not opening widget:", error);
+              setDepthPin(null);
             }
           }
         }}
@@ -568,8 +584,6 @@ export default function MapScreen() {
             tracksViewChanges={false}
             onPress={(e) => {
               e.stopPropagation();
-              // Close depth widget when user location is tapped
-              useBathymetryStore.getState().setSelectedCoord(null);
               // En yakın mekanı bul ve detay sayfasına yönlendir
               if (filteredPlaces.length > 0) {
                 let nearestPlace = filteredPlaces[0];
@@ -649,21 +663,44 @@ export default function MapScreen() {
           </Marker>
         )}
 
-          {/* Depth Contour Lines */}
-          {contours.map((contour, index) => (
-            <Polyline
-              key={`contour-${contour.interval}-${index}`}
-              coordinates={contour.coordinates.map(([lat, lon]) => ({
-                latitude: lat,
-                longitude: lon,
-              }))}
-              strokeColor={getContourColor(contour.interval)}
-              strokeWidth={1.5}
-              lineCap="round"
-              lineJoin="round"
-              zIndex={1}
-            />
-          ))}
+          {/* Depth Pin Marker (for selected water point) */}
+          {depthPin && (
+            <Marker
+              coordinate={{
+                latitude: depthPin.lat,
+                longitude: depthPin.lon,
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={false}
+              onPress={(e) => {
+                e.stopPropagation();
+                // Navigate to detailed bathymetry analysis page
+                router.push({
+                  pathname: "/(places)/bathymetry",
+                  params: {
+                    lat: depthPin.lat.toString(),
+                    lon: depthPin.lon.toString(),
+                  },
+                });
+              }}
+            >
+              <View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: "#EF4444",
+                  borderWidth: 2,
+                  borderColor: "#FFFFFF",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  elevation: 4,
+                }}
+              />
+            </Marker>
+          )}
 
           {/* Radius Circle */}
           {location && radius > 0 && (
@@ -699,6 +736,81 @@ export default function MapScreen() {
           );
         })}
       </MapView>
+
+      {/* Map type toggle button */}
+      <Pressable
+        onPress={() => {
+          setMapType(mapType === "standard" ? "satellite" : "standard");
+        }}
+        style={{
+          position: "absolute",
+          top: insets.top + 16,
+          right: 16,
+          backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+          borderRadius: 12,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 5,
+          borderWidth: 1,
+          borderColor: isDark ? "#334155" : "#E2E8F0",
+          zIndex: 500,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <Globe size={18} color={isDark ? "#F8FAFC" : "#0F172A"} weight="fill" />
+        <Text style={{ color: isDark ? "#F8FAFC" : "#0F172A", fontWeight: "600", fontSize: 14 }}>
+          {mapType === "standard" ? "Uydu" : "Harita"}
+        </Text>
+      </Pressable>
+
+      {/* Follow-me button */}
+      {!followMe && (
+        <Pressable
+          onPress={() => {
+            userIsInteracting.current = false;
+            setFollowMe(true);
+            if (location) {
+              const nextRegion = {
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              };
+              setRegion(nextRegion);
+              if (mapRef.current) {
+                mapRef.current.animateToRegion(nextRegion, 500);
+              }
+            }
+          }}
+          style={{
+            position: "absolute",
+            bottom: 140,
+            right: 16,
+            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+            borderRadius: 14,
+            paddingVertical: 12,
+            paddingHorizontal: 14,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 6,
+            borderWidth: 1,
+            borderColor: isDark ? "#334155" : "#E2E8F0",
+            zIndex: 500,
+          }}
+        >
+          <Text style={{ color: isDark ? "#F8FAFC" : "#0F172A", fontWeight: "700" }}>
+            Takip Et
+          </Text>
+        </Pressable>
+      )}
 
       {/* Filter Buttons */}
       <View
@@ -740,33 +852,6 @@ export default function MapScreen() {
         </Pressable>
       </View>
 
-
-      {/* Depth Widget - Using Modal for proper overlay */}
-      <Modal
-        visible={!!selectedCoord}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => {
-          useBathymetryStore.getState().setSelectedCoord(null);
-        }}
-      >
-        <Pressable
-          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0, 0, 0, 0.5)" }}
-          onPress={() => {
-            useBathymetryStore.getState().setSelectedCoord(null);
-          }}
-        >
-          <Pressable onPress={(e) => e.stopPropagation()}>
-            <DepthWidget
-              onClose={() => {
-                useBathymetryStore.getState().setSelectedCoord(null);
-              }}
-              weather={weather}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
-      
 
       {/* Professional Filter Panel */}
       {showFilterPanel && (
@@ -966,7 +1051,7 @@ export default function MapScreen() {
             title="Kategoriler"
             summary={
               pendingCategories.length === 0
-                ? "Tüm kategoriler"
+                ? "Kategori seçilmedi"
                 : `${pendingCategories.length} kategori seçili`
             }
             isExpanded={isCategoryExpanded}
@@ -975,18 +1060,19 @@ export default function MapScreen() {
           >
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {CATEGORIES.map((cat) => {
-                const isSelected =
-                  pendingCategories.length === 0 || pendingCategories.includes(cat.category);
+                // If pendingCategories is empty, none are selected (show only user location)
+                // If pendingCategories has items, only those are selected
+                const isSelected = pendingCategories.length > 0 && pendingCategories.includes(cat.category);
                 return (
                   <Pressable
                     key={cat.id}
                     onPress={() => {
-                      if (pendingCategories.length === 0) {
-                        setPendingCategories([cat.category]);
-                      } else if (isSelected) {
+                      if (pendingCategories.includes(cat.category)) {
+                        // This category is selected, remove it
                         const newCategories = pendingCategories.filter((c) => c !== cat.category);
-                        setPendingCategories(newCategories.length === 0 ? [] : newCategories);
+                        setPendingCategories(newCategories);
                       } else {
+                        // This category is not selected, add it
                         setPendingCategories([...pendingCategories, cat.category]);
                       }
                     }}
