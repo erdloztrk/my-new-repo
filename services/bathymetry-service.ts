@@ -4,7 +4,7 @@
 
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import type { DepthResponse, ScoreResponse, SpeciesKey, WeatherData, ContourResponse } from "@/types/bathymetry";
+import type { DepthResponse, ScoreResponse, SpeciesKey, WeatherData, SourcesResponse } from "@/types/bathymetry";
 import { logDebug, logWarn, logError } from "@/lib/logger";
 
 // For development: use localhost for iOS simulator, 10.0.2.2 for Android emulator, or your computer's IP for physical device
@@ -95,6 +95,7 @@ function getMockDepth(lat: number, lon: number): DepthResponse {
     depth_m: mockDepth,
     source: "MOCK_DATA",
     resolution_m: 450,
+    not_for_navigation: true,
   };
 }
 
@@ -103,10 +104,12 @@ function getMockDepth(lat: number, lon: number): DepthResponse {
  */
 export async function getDepth(
   lat: number,
-  lon: number
+  lon: number,
+  opts?: { debug?: boolean }
 ): Promise<DepthResponse> {
   const apiBaseUrl = getApiBaseUrl();
-  const url = `${apiBaseUrl}/v1/depth?lat=${lat}&lon=${lon}`;
+  const debug = opts?.debug || false;
+  const url = `${apiBaseUrl}/v1/depth?lat=${lat}&lon=${lon}${debug ? "&debug=1" : ""}`;
   logDebug("[BathymetryService] Fetching depth from:", url);
   
   try {
@@ -133,20 +136,27 @@ export async function getDepth(
     }
 
     const data = await response.json();
+    
+    // Check if response is mock data (should not happen if backend is working)
+    if (data.source === "MOCK_DATA") {
+      logWarn("[BathymetryService] Received MOCK_DATA from backend, this should not happen");
+      throw new Error("Backend returned mock data");
+    }
+    
     logDebug("[BathymetryService] Backend response received, source:", data.source);
     
     return data;
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === "AbortError") {
-        // Use mock data on timeout
-        logWarn(`[BathymetryService] Request timeout after 30s (${url}), using mock data`);
-        return getMockDepth(lat, lon);
+        // Request timeout - backend is too slow or unavailable
+        logError(`[BathymetryService] Request timeout after 60s (${url}), backend may be slow or unavailable`);
+        throw new Error(`Backend timeout: Request took longer than 60 seconds`);
       }
-      if (error.message.includes("Network request failed")) {
-        // Use mock data when backend is unavailable (for UI testing)
-        logWarn("[BathymetryService] Network request failed, using mock data");
-        return getMockDepth(lat, lon);
+      if (error.message.includes("Network request failed") || error.message.includes("Failed to fetch")) {
+        // Backend is unavailable - use logDebug since this is expected when backend is down
+        logDebug(`[BathymetryService] Network request failed (${url}), backend may be down`);
+        throw new Error(`Backend unavailable: ${error.message}`);
       }
       // For other errors, log and throw
       logError("[BathymetryService] Error fetching depth:", error);
@@ -281,8 +291,9 @@ export async function getScore(
   
   try {
     // Create AbortController for timeout
+    // Increased timeout to 60 seconds for slow backend processing
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout (increased for slow backend)
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for real data
     
     const requestBody = {
       lat,
@@ -320,14 +331,14 @@ export async function getScore(
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === "AbortError") {
-        // Use mock data on timeout
-        logWarn(`[BathymetryService] Request timeout after 30s (${url}), using mock data`);
-        return getMockScore(lat, lon, species);
+        // Request timeout - backend is too slow
+        logError(`[BathymetryService] Request timeout after 60s (${url})`);
+        throw new Error(`Backend timeout: Request took longer than 60 seconds`);
       }
-      if (error.message.includes("Network request failed")) {
-        // Use mock data when backend is unavailable (for UI testing)
-        // Don't log as error since we're handling it gracefully
-        return getMockScore(lat, lon, species);
+      if (error.message.includes("Network request failed") || error.message.includes("Failed to fetch")) {
+        // Backend is unavailable - use logDebug since this is expected when backend is down
+        logDebug(`[BathymetryService] Network request failed (${url}), backend may be down`);
+        throw new Error(`Backend unavailable: ${error.message}`);
       }
       // For other errors, log and throw
       logError("[BathymetryService] Error fetching score:", error);
@@ -337,23 +348,18 @@ export async function getScore(
   }
 }
 
+
 /**
- * Get depth contour lines for a bounding box.
+ * Get available bathymetry sources.
  */
-export async function getContours(
-  minLat: number,
-  maxLat: number,
-  minLon: number,
-  maxLon: number,
-  intervals: string = "5,10,15,20,30,50,100"
-): Promise<ContourResponse> {
+export async function getSources(): Promise<SourcesResponse> {
   const apiBaseUrl = getApiBaseUrl();
-  const url = `${apiBaseUrl}/v1/contours?min_lat=${minLat}&max_lat=${maxLat}&min_lon=${minLon}&max_lon=${maxLon}&intervals=${intervals}`;
-  logDebug("[BathymetryService] Fetching contours from:", url);
+  const url = `${apiBaseUrl}/v1/bathymetry/sources`;
+  logDebug("[BathymetryService] Fetching sources from:", url);
   
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for contours
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
     const response = await fetch(url, {
       method: "GET",
@@ -367,13 +373,13 @@ export async function getContours(
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Contour query failed (${response.status}): ${errorText}`);
+      throw new Error(`Sources query failed (${response.status}): ${errorText}`);
     }
 
     const data = await response.json();
     return data;
   } catch (error) {
-    logError("[BathymetryService] Error fetching contours:", error);
+    logError("[BathymetryService] Error fetching sources:", error);
     throw error;
   }
 }

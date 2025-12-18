@@ -37,7 +37,7 @@ export function SunriseSunsetWidget({
   if (!sunrise || !sunset) {
     return (
       <View className="bg-card dark:bg-card-dark rounded-2xl p-3 shadow-sm border border-border dark:border-border-dark">
-        <Text className="text-xs text-muted dark:text-muted-dark text-center">
+        <Text className={`text-xs text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
           Veri alınamadı
         </Text>
       </View>
@@ -52,10 +52,10 @@ export function SunriseSunsetWidget({
             <Ionicons name="sunny" size={16} color="#F59E0B" />
           </View>
           <View>
-            <Text className="text-xs text-muted dark:text-muted-dark mb-0.5">
+            <Text className={`text-xs mb-0.5 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
               Gün Doğumu
             </Text>
-            <Text className="text-sm font-semibold text-text dark:text-text-dark">
+            <Text className={`text-sm font-semibold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
               {formatTime(sunrise)}
             </Text>
           </View>
@@ -66,10 +66,10 @@ export function SunriseSunsetWidget({
             <Ionicons name="moon" size={16} color="#F97316" />
           </View>
           <View>
-            <Text className="text-xs text-muted dark:text-muted-dark mb-0.5">
+            <Text className={`text-xs mb-0.5 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
               Gün Batımı
             </Text>
-            <Text className="text-sm font-semibold text-text dark:text-text-dark">
+            <Text className={`text-sm font-semibold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
               {formatTime(sunset)}
             </Text>
           </View>

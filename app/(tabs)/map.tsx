@@ -1,63 +1,36 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { View, Text, ActivityIndicator, Platform, Animated, Pressable, Image, Linking, Dimensions, ScrollView } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import MapView, { Region, Marker, Circle as MapCircle } from "react-native-maps";
-import * as Location from "expo-location";
-import { router, useFocusEffect } from "expo-router";
-import { PersonSimpleWalk, Car, MapPin, Star, X, Sliders, Check, Globe } from "phosphor-react-native";
-import { FilterAccordion } from "@/components/filters/FilterAccordion";
+import MapView, { Marker, Circle as MapCircle, Region } from "react-native-maps";
+import MapViewClustering from "react-native-map-clustering";
+import { router } from "expo-router";
+import { PersonSimpleWalk, Car, MapPin, Star, X, Sliders, Globe, Sun, Moon, Fish, Waves, Folder } from "phosphor-react-native";
+import Svg, { Path } from "react-native-svg";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
-import { getAllPlaces } from "@/services/places-service";
 import { Place } from "@/types/place";
 import { Category } from "@/types/category";
-import { TablerIcon } from "@/components/icons/TablerIcon";
-import { CATEGORIES } from "@/utils/categories";
 import { useBathymetryStore } from "@/stores/bathymetry-store";
+import { logError, logDebug } from "@/lib/logger";
+import { ThemeToggle } from "@/components/ThemeToggle";
+// ViewModel hooks
+import { useMapLocation } from "@/hooks/map/useMapLocation";
+import { useMapPlaces } from "@/hooks/map/useMapPlaces";
+import { useMapRegion } from "@/hooks/map/useMapRegion";
+import { useMapWeather } from "@/hooks/map/useMapWeather";
+import { useMapBathymetry } from "@/hooks/map/useMapBathymetry";
+import { usePlaceCollections } from "@/hooks/map/usePlaceCollections";
+import { getCategoryColor, getCategoryIconName, calculateDistance } from "@/utils/mapHelpers";
+import { WeatherDataCard } from "@/components/weather/WeatherDataCard";
 import { getWeather } from "@/components/weather/weatherAPI";
-import type { CurrentWeather } from "@/components/weather/weatherTypes";
-import { logDebug, logError } from "@/lib/logger";
-
-// Place Marker Component
-interface PlaceMarkerProps {
-  place: Place;
-  categoryColor: string;
-  isSelected: boolean;
-  index: number;
-  onPress: () => void;
-}
-
-function PlaceMarker({ place, categoryColor, isSelected, index, onPress }: PlaceMarkerProps) {
-  return (
-    <Marker
-      coordinate={{
-        latitude: place.coordinates.latitude,
-        longitude: place.coordinates.longitude,
-      }}
-      anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={false}
-      onPress={(e) => {
-        e.stopPropagation();
-        // Close depth pin when place is selected
-        onPress();
-      }}
-    >
-      <View
-        style={{
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <TablerIcon
-          name="location-target"
-          size={24}
-          color={categoryColor}
-          strokeWidth={1}
-        />
-      </View>
-    </Marker>
-  );
-}
+import type { CurrentWeather, WeatherResponse } from "@/components/weather/weatherTypes";
+import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
+import { PlaceBottomSheet } from "@/components/map/PlaceBottomSheet";
+import { PlaceMarker } from "@/components/map/PlaceMarker";
+import { ClusterMarker } from "@/components/map/ClusterMarker";
+import { FilterPanel } from "@/components/map/FilterPanel";
+import { WeatherWidgets } from "@/components/map/WeatherWidgets";
+import { debounce } from "@/utils/debounce";
 
 // Light mode map style for Google Maps (Android) - hide POIs
 const lightMapStyle = [
@@ -104,47 +77,68 @@ const darkMapStyle = [
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 export default function MapScreen() {
-  const { colorScheme } = useTheme();
+  const { colorScheme, toggleTheme } = useTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const isDark = colorScheme === "dark";
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [region, setRegion] = useState<Region | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [places, setPlaces] = useState<Place[]>([]);
-  const [loadingPlaces, setLoadingPlaces] = useState(true);
+
+  // UI-only state (filter panel, selected place, etc.)
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
-  // Filter states
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [radius, setRadius] = useState<number>(5); // km cinsinden
-  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]); // Boş array = hiçbir kategori gösterilmez (sadece kullanıcı konumu)
-  
-  // Accordion states
-  const [isRadiusExpanded, setIsRadiusExpanded] = useState(false);
-  const [isCategoryExpanded, setIsCategoryExpanded] = useState(false);
-  
-  // Pending filter states (before apply)
+  const [radius, setRadius] = useState<number>(5); // km
+  const [isRadiusEnabled, setIsRadiusEnabled] = useState<boolean>(true); // Radius filter enabled/disabled
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [pendingRadius, setPendingRadius] = useState<number>(5);
+  const [pendingRadiusEnabled, setPendingRadiusEnabled] = useState<boolean>(true);
   const [pendingCategories, setPendingCategories] = useState<Category[]>([]);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const cardAnim = useRef(new Animated.Value(0)).current;
-  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
-  const mapRef = useRef<MapView>(null);
-  
-  // Weather state
-  const [weather, setWeather] = useState<CurrentWeather | null>(null);
-  
-  // Map follow state
-  const [followMe, setFollowMe] = useState(true);
-  const initialRegionSet = useRef(false);
-  const userIsInteracting = useRef(false);
-  
-  // Depth pin state (for marking selected water point)
-  const [depthPin, setDepthPin] = useState<{ lat: number; lon: number } | null>(null);
-  
-  // Map type state (standard or satellite)
+  const [pendingCollections, setPendingCollections] = useState<string[]>([]);
+  const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [mapType, setMapType] = useState<"standard" | "satellite">("standard");
+  const [isBathymetryEnabled, setIsBathymetryEnabled] = useState<boolean>(false);
+  const [isWeatherSelectionMode, setIsWeatherSelectionMode] = useState<boolean>(false);
+  const [showWeatherModal, setShowWeatherModal] = useState<boolean>(false);
+  const [selectedWeatherLocation, setSelectedWeatherLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [selectedWeatherData, setSelectedWeatherData] = useState<{ weather: CurrentWeather | null; forecastList: WeatherResponse["forecastList"] } | null>(null);
+  const [weatherModalLoading, setWeatherModalLoading] = useState<boolean>(false);
+  const [showAddToCollection, setShowAddToCollection] = useState<boolean>(false);
+  const [quickFilter, setQuickFilter] = useState<"nearest" | "most_popular" | null>(null);
+
+  // Animation refs
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const mapRef = useRef<MapView>(null);
+
+  // Debounced region change handler
+  const debouncedRegionChange = useRef(
+    debounce((r: any) => {
+      if (userIsInteracting.current) {
+        setRegion(r);
+        setTimeout(() => {
+          handleMapInteractionEnd();
+        }, 100);
+      }
+    }, 500)
+  ).current;
+
+  // ViewModel hooks - business logic extracted
+  const { location, loading, error } = useMapLocation(t("location_permission_required"));
+  const { filteredPlaces, loading: loadingPlaces, getPreviewCount } = useMapPlaces({
+    location,
+    radius: isRadiusEnabled ? radius : Infinity, // If disabled, use Infinity to show all places
+    selectedCategories,
+  });
+  const { region, setRegion, userIsInteracting, handleMapInteractionStart, handleMapInteractionEnd } =
+    useMapRegion({
+      location,
+      places: filteredPlaces,
+      followMe: true, // Always follow user location
+    });
+  const { weather, forecastList } = useMapWeather(location);
+  const { depthPin, handleMapTap, clearDepthPin } = useMapBathymetry();
+
+  // Load bathymetry cache on mount
+  useEffect(() => {
+    useBathymetryStore.getState().loadCache();
+  }, []);
 
   // Pulse animation for user location marker
   useEffect(() => {
@@ -166,307 +160,94 @@ export default function MapScreen() {
     return () => pulse.stop();
   }, [pulseAnim]);
 
-  // Load bathymetry cache on mount
-  useEffect(() => {
-    useBathymetryStore.getState().loadCache();
-  }, []);
-  
-  // Load weather when location is available
-  useEffect(() => {
-    if (location) {
-      getWeather({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      }).then((weatherData) => {
-        if (weatherData) {
-          setWeather(weatherData.current);
-        }
-      }).catch((error) => {
-        console.error("Error loading weather:", error);
-      });
-    }
-  }, [location]);
 
-  // Card animation
-  useEffect(() => {
-    Animated.spring(cardAnim, {
-      toValue: selectedPlace ? 1 : 0,
-      useNativeDriver: true,
-      tension: 50,
-      friction: 8,
-    }).start();
-  }, [selectedPlace]);
+  // Fetch collections for visible places (before filtering)
+  const placeCollectionsMap = usePlaceCollections(filteredPlaces);
 
-  const startLocationTracking = useCallback(async () => {
-    try {
-      const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== "granted") {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        finalStatus = status;
-      }
-
-      if (finalStatus !== "granted") {
-        setError(t("location_permission_required"));
-        setLoading(false);
-        return;
-      }
-
-      const locationResult = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      setLocation(locationResult);
-
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-      }
-      
-      locationSubscription.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        (newLocation) => {
-          setLocation(newLocation);
-        }
-      );
-
-      setLoading(false);
-    } catch (err) {
-      console.error("Error getting location:", err);
-      setError(t("location_error"));
-      setLoading(false);
-    }
-  }, [t]);
-
-  const loadPlaces = useCallback(async () => {
-    try {
-      setLoadingPlaces(true);
-      const placesData = await getAllPlaces();
-      setPlaces(placesData);
-    } catch (error: any) {
-      console.error("Error loading places for map:", error);
-    } finally {
-      setLoadingPlaces(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      startLocationTracking();
-      loadPlaces();
-
-      return () => {
-        if (locationSubscription.current) {
-          locationSubscription.current.remove();
-          locationSubscription.current = null;
-        }
-      };
-    }, [startLocationTracking, loadPlaces])
-  );
-
-  // Set initial region once, then only update when followMe is active and user is not interacting
-  useEffect(() => {
-    // Don't update region if user is manually panning/zooming
-    if (userIsInteracting.current) {
-      return;
-    }
-
-    if (places.length > 0 && location && followMe) {
-      const allLatitudes = [location.coords.latitude, ...places.map(p => p.coordinates.latitude)];
-      const allLongitudes = [location.coords.longitude, ...places.map(p => p.coordinates.longitude)];
-      
-      const minLat = Math.min(...allLatitudes);
-      const maxLat = Math.max(...allLatitudes);
-      const minLng = Math.min(...allLongitudes);
-      const maxLng = Math.max(...allLongitudes);
-      
-      const centerLat = (minLat + maxLat) / 2;
-      const centerLng = (minLng + maxLng) / 2;
-      
-      const latDelta = Math.max(maxLat - minLat, 0.01) * 1.5;
-      const lngDelta = Math.max(maxLng - minLng, 0.01) * 1.5;
-      
-      setRegion({
-        latitude: centerLat,
-        longitude: centerLng,
-        latitudeDelta: latDelta,
-        longitudeDelta: lngDelta,
-      });
-      initialRegionSet.current = true;
-    } else if (location && !initialRegionSet.current) {
-      // Set initial region only once
-      setRegion({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
-      initialRegionSet.current = true;
-    } else if (location && followMe && !userIsInteracting.current && initialRegionSet.current) {
-      // Update region when location changes and followMe is active
-      // Use current region's deltas to maintain zoom level
-      setRegion((prevRegion) => ({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: prevRegion?.latitudeDelta || 0.01,
-        longitudeDelta: prevRegion?.longitudeDelta || 0.01,
-      }));
-    }
-  }, [places, location, followMe]);
-
-  const getCategoryColor = (category: Category): string => {
-    const colors: Record<Category, string> = {
-      cafes: "#E07A5F",
-      restaurants: "#81B29A",
-      bars: "#3D405B",
-      parks: "#F2CC8F",
-      beach_clubs: "#38BDF8",
-      hotels: "#8B5CF6",
-      cinemas: "#EC4899",
-      shopping: "#F59E0B",
-      gyms: "#EF4444",
-      libraries: "#6366F1",
-      hospitals: "#DC2626",
-      schools: "#10B981",
-      churches: "#6B7280",
-      banks: "#059669",
-      gas_stations: "#F97316",
-      parking: "#64748B",
-      bus_stops: "#3B82F6",
-      train_stations: "#0EA5E9",
-      nightclubs: "#A855F7",
-      art_galleries: "#EC4899",
-      ice_cream: "#F0ABFC",
-      bakeries: "#FCD34D",
-      bookstores: "#8B5CF6",
-    };
-    return colors[category] || "#6C63FF";
-  };
-
-  const getCategoryIconName = (category: Category): string => {
-    const iconMap: Record<Category, string> = {
-      cafes: "coffee",
-      restaurants: "tools-kitchen",
-      bars: "glass-full",
-      parks: "tree",
-      beach_clubs: "sun-high",
-      hotels: "hotel-service",
-      cinemas: "movie",
-      shopping: "shopping-bag",
-      gyms: "gymnastics",
-      libraries: "library",
-      hospitals: "hospital",
-      schools: "school",
-      churches: "building-church",
-      banks: "building-bank",
-      gas_stations: "gas-station",
-      parking: "parking",
-      bus_stops: "bus",
-      train_stations: "train",
-      nightclubs: "music",
-      art_galleries: "artboard",
-      ice_cream: "ice-cream",
-      bakeries: "bread",
-      bookstores: "book",
-    };
-    return iconMap[category] || "coffee";
-  };
-
-  // Haversine formula ile mesafe hesaplama (km cinsinden)
-  const calculateDistance = (
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number
-  ): number => {
-    const R = 6371; // Dünya yarıçapı (km)
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
-  // Yarıçap ve kategori içindeki mekanları filtrele
-  const filteredPlaces = places.filter((place) => {
-    if (!location || !place.coordinates) return false;
+  // Sort places based on quick filter and apply collection filter
+  const sortedPlaces = useMemo(() => {
+    let places = [...filteredPlaces];
     
-    // Kategori filtresi: selectedCategories boşsa hiçbir mekan gösterilmez (sadece kullanıcı konumu)
-    // selectedCategories doluysa sadece seçili kategoriler gösterilir
-    if (selectedCategories.length === 0) {
-      return false; // Başlangıçta hiçbir mekan gösterilmez
-    }
-    if (!selectedCategories.includes(place.category)) {
-      return false;
+    // Apply collection filter
+    if (selectedCollections.length > 0) {
+      places = places.filter(place => {
+        const placeCollections = placeCollectionsMap[place.id] || [];
+        // Check if place is in any of the selected collections
+        return placeCollections.some(collection => selectedCollections.includes(collection.id));
+      });
     }
     
-    // Yarıçap filtresi
-    const distance = calculateDistance(
-      location.coords.latitude,
-      location.coords.longitude,
-      place.coordinates.latitude,
-      place.coordinates.longitude
-    );
-    return distance <= radius;
-  });
-
-  // Preview için pending filtreleri kullanarak mekan sayısını hesapla
-  const previewFilteredCount = showFilterPanel
-    ? places.filter((place) => {
-        if (!location || !place.coordinates) return false;
-        
-        // Kategori filtresi: pendingCategories boşsa hiçbir mekan gösterilmez
-        if (pendingCategories.length === 0) {
-          return false;
-        }
-        if (!pendingCategories.includes(place.category)) {
-          return false;
-        }
-        
-        // Yarıçap filtresi
-        const distance = calculateDistance(
+    // Apply quick filter sorting
+    if (quickFilter === "nearest" && location?.coords) {
+      places.sort((a, b) => {
+        if (!a.coordinates || !b.coordinates) return 0;
+        const distA = calculateDistance(
           location.coords.latitude,
           location.coords.longitude,
-          place.coordinates.latitude,
-          place.coordinates.longitude
+          a.coordinates.latitude,
+          a.coordinates.longitude
         );
-        return distance <= pendingRadius;
-      }).length
-    : filteredPlaces.length;
-
-  const openExternalMap = async (mode: "walking" | "driving") => {
-    if (!selectedPlace?.coordinates) return;
-    const { latitude, longitude } = selectedPlace.coordinates;
-    
-    try {
-      if (Platform.OS === "ios") {
-        const dirFlag = mode === "walking" ? "w" : "d";
-        const url = `maps://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=${dirFlag}`;
-        const canOpen = await Linking.canOpenURL(url);
-        if (canOpen) {
-          await Linking.openURL(url);
-        } else {
-          const httpsUrl = `https://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=${dirFlag}`;
-          await Linking.openURL(httpsUrl);
-        }
-      } else {
-        const travelmode = mode === "walking" ? "walking" : "driving";
-        const url = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&travelmode=${travelmode}`;
-        await Linking.openURL(url);
-      }
-    } catch (error) {
-      logError("Error opening maps app:", error);
+        const distB = calculateDistance(
+          location.coords.latitude,
+          location.coords.longitude,
+          b.coordinates.latitude,
+          b.coordinates.longitude
+        );
+        return distA - distB;
+      });
+    } else if (quickFilter === "most_popular") {
+      places.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     }
-  };
+    return places;
+  }, [filteredPlaces, quickFilter, location?.coords, selectedCollections, placeCollectionsMap]);
+
+  // Preview count for pending filters (including collection filter)
+  const previewFilteredCount = useMemo(() => {
+    if (!showFilterPanel) return filteredPlaces.length;
+    
+    let places = filteredPlaces;
+    
+    // Apply collection filter to preview
+    if (pendingCollections.length > 0) {
+      places = places.filter(place => {
+        const placeCollections = placeCollectionsMap[place.id] || [];
+        return placeCollections.some(collection => pendingCollections.includes(collection.id));
+      });
+    }
+    
+    // Apply radius and category filters
+    const count = getPreviewCount(pendingRadiusEnabled ? pendingRadius : Infinity, pendingCategories);
+    
+    return Math.min(count, places.length);
+  }, [showFilterPanel, pendingRadius, pendingRadiusEnabled, pendingCategories, pendingCollections, filteredPlaces, placeCollectionsMap, getPreviewCount]);
+
+  // Memoize place markers to avoid re-rendering on every map interaction
+  const placeMarkers = useMemo(() => {
+    return sortedPlaces.map((place, index) => {
+      if (!place.coordinates || place.coordinates.latitude === 0 || place.coordinates.longitude === 0) {
+        return null;
+      }
+      const categoryColor = getCategoryColor(place.category);
+      const isSelected = selectedPlace?.id === place.id;
+      const collections = placeCollectionsMap[place.id] || [];
+      
+      return (
+        <PlaceMarker
+          key={place.id}
+          place={place}
+          categoryColor={categoryColor}
+          isSelected={isSelected}
+          index={index}
+          collections={collections}
+          onPress={() => {
+            setSelectedPlace(place);
+          }}
+        />
+      );
+    });
+  }, [sortedPlaces, selectedPlace?.id, placeCollectionsMap]);
+
+
 
   if (loading) {
     return (
@@ -481,7 +262,7 @@ export default function MapScreen() {
     );
   }
 
-  if (error || !location || !region) {
+  if (error || !location) {
     return (
       <View className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
         <View className="flex-1 items-center justify-center px-6">
@@ -498,81 +279,79 @@ export default function MapScreen() {
     );
   }
 
-  const iconNameForPlace = selectedPlace 
-    ? getCategoryIconName(selectedPlace.category)
-    : "coffee";
+  // Use region if available, otherwise create from location (old behavior)
+  const mapRegion: Region = region || {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  };
 
   return (
-    <View className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`} style={{ position: "relative", overflow: "visible" }}>
+    <View style={{ flex: 1 }}>
       {/* Full Screen Map */}
       <MapView
-        style={{ flex: 1, zIndex: 0 }}
-        region={region}
-        ref={mapRef}
-        onPanDrag={() => {
-          userIsInteracting.current = true;
-          setFollowMe(false);
-        }}
-        onRegionChangeComplete={(r) => {
-          // Only update region if user is not interacting (programmatic change)
-          // or if this is a user interaction (userIsInteracting is true)
-          if (userIsInteracting.current || !followMe) {
-            setRegion(r);
-            // Reset interaction flag after a delay to allow programmatic updates
-            setTimeout(() => {
-              userIsInteracting.current = false;
-            }, 100);
-          }
-        }}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-        followsUserLocation={false}
-        mapType={mapType}
-        showsPointsOfInterest={false}
-        showsBuildings={false}
-        showsTraffic={false}
-        showsIndoors={false}
-        userInterfaceStyle={isDark ? "dark" : "light"}
-        customMapStyle={Platform.OS === "android" && mapType === "standard" ? (isDark ? darkMapStyle : lightMapStyle) : undefined}
-        onPress={async (e) => {
-          setSelectedPlace(null);
-          // Handle map tap for depth query - only open widget for water (depth < 0)
-          const coordinate = e.nativeEvent?.coordinate;
-          if (coordinate) {
-            const { latitude, longitude } = coordinate;
-            logDebug("[Map] Tap detected:", { latitude, longitude });
-            
-            // Check depth first - only open widget if it's water (depth < 0)
-            // Strict check: depth must be negative (water), not just < 0
-            try {
-              const { getDepth } = await import("@/services/bathymetry-service");
-              const depthResponse = await getDepth(latitude, longitude);
-              
-              // Strict check: Only open detail page if depth is negative (water)
-              // depth_m < 0 means water, depth_m >= 0 means land
-              if (depthResponse.depth_m !== null && depthResponse.depth_m < 0) {
-                // Set pin and navigate to detail page (not widget)
-                setDepthPin({ lat: latitude, lon: longitude });
-                router.push({
-                  pathname: "/(places)/bathymetry",
-                  params: {
-                    lat: latitude.toString(),
-                    lon: longitude.toString(),
-                  },
-                });
-              } else {
-                // Land or positive elevation or null - do nothing
-                logDebug("[Map] Land detected (depth >= 0 or null), not opening depth widget");
-                setDepthPin(null);
+          style={{ flex: 1, width: "100%", height: "100%" }}
+          initialRegion={mapRegion}
+          region={mapRegion}
+          ref={mapRef}
+          onPanDrag={() => {
+            handleMapInteractionStart();
+          }}
+          onRegionChangeComplete={(r) => {
+            // Debounced region change handler
+            debouncedRegionChange(r);
+          }}
+          showsUserLocation={false}
+          showsMyLocationButton={false}
+          followsUserLocation={false}
+          mapType={mapType}
+          showsPointsOfInterest={false}
+          showsBuildings={false}
+          showsTraffic={false}
+          showsIndoors={false}
+          userInterfaceStyle={isDark ? "dark" : "light"}
+          customMapStyle={Platform.OS === "android" && mapType === "standard" ? (isDark ? darkMapStyle : lightMapStyle) : undefined}
+          onPress={(e) => {
+            setSelectedPlace(null);
+            clearDepthPin();
+            const coordinate = e.nativeEvent?.coordinate;
+            if (coordinate) {
+              if (isBathymetryEnabled) {
+                handleMapTap(coordinate.latitude, coordinate.longitude);
               }
-            } catch (error) {
-              // If depth query failed, don't open widget (safer default - assume land)
-              logDebug("[Map] Depth query failed, not opening widget:", error);
-              setDepthPin(null);
+              if (isWeatherSelectionMode) {
+                // Set selected location and fetch weather data
+                setSelectedWeatherLocation({
+                  latitude: coordinate.latitude,
+                  longitude: coordinate.longitude,
+                });
+                setWeatherModalLoading(true);
+                setShowWeatherModal(true);
+                setIsWeatherSelectionMode(false); // Exit selection mode
+                
+                getWeather({
+                  latitude: coordinate.latitude,
+                  longitude: coordinate.longitude,
+                })
+                  .then((weatherData) => {
+                    if (weatherData) {
+                      setSelectedWeatherData({
+                        weather: weatherData.current,
+                        forecastList: weatherData.forecastList,
+                      });
+                    }
+                  })
+                  .catch((error) => {
+                    console.error("Error loading weather:", error);
+                  })
+                  .finally(() => {
+                    setWeatherModalLoading(false);
+                  });
+              }
             }
-          }
-        }}
-      >
+          }}
+        >
         {/* User Location Marker */}
         {location && (
           <Marker
@@ -619,46 +398,33 @@ export default function MapScreen() {
                 alignItems: "center",
                 opacity: pulseAnim.interpolate({
                   inputRange: [1, 1.3],
-                  outputRange: [1, 0.7],
+                  outputRange: [1, 0.3],
                 }),
+                transform: [
+                  {
+                    scale: pulseAnim.interpolate({
+                      inputRange: [1, 1.3],
+                      outputRange: [1, 1.3],
+                    }),
+                  },
+                ],
               }}
             >
-              {/* Glow effect wrapper for dark mode */}
-              {isDark ? (
-                <View
-                  style={{
-                    shadowColor: "#4DFFFF",
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.9,
-                    shadowRadius: 12,
-                    elevation: 12,
-                  }}
-                >
-                  <TablerIcon
-                    name="user-location"
-                    size={24}
-                    color="#4DFFFF" // Neon Cyan for dark mode
-                    strokeWidth={1.5}
-                  />
-                </View>
-              ) : (
-                <View
-                  style={{
-                    shadowColor: "#5B6CFF",
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 4,
-                    elevation: 4,
-                  }}
-                >
-                  <TablerIcon
-                    name="user-location"
-                    size={24}
-                    color="#5B6CFF" // Brand color for light mode
-                    strokeWidth={1}
-                  />
-                </View>
-              )}
+              <View
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 7,
+                  backgroundColor: "#EF4444", // red-500
+                  borderWidth: 2,
+                  borderColor: "#FFFFFF",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.35,
+                  shadowRadius: 4,
+                  elevation: 5,
+                }}
+              />
             </Animated.View>
           </Marker>
         )}
@@ -703,7 +469,7 @@ export default function MapScreen() {
           )}
 
           {/* Radius Circle */}
-          {location && radius > 0 && (
+          {location && isRadiusEnabled && radius > 0 && (
             <MapCircle
               center={{
                 latitude: location.coords.latitude,
@@ -716,103 +482,116 @@ export default function MapScreen() {
             />
           )}
 
-          {/* Place Markers */}
-          {filteredPlaces.map((place, index) => {
-          if (!place.coordinates || place.coordinates.latitude === 0 || place.coordinates.longitude === 0) {
-            return null;
-          }
-          const categoryColor = getCategoryColor(place.category);
-          const isSelected = selectedPlace?.id === place.id;
-          
-          return (
-            <PlaceMarker
-              key={place.id}
-              place={place}
-              categoryColor={categoryColor}
-              isSelected={isSelected}
-              index={index}
-              onPress={() => router.push(`/(places)/${place.id}`)}
-            />
-          );
-        })}
-      </MapView>
+          {/* Place Markers - Clustered (automatic clustering via MapView) */}
+          {placeMarkers}
 
-      {/* Map type toggle button */}
-      <Pressable
-        onPress={() => {
-          setMapType(mapType === "standard" ? "satellite" : "standard");
-        }}
-        style={{
-          position: "absolute",
-          top: insets.top + 16,
-          right: 16,
-          backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
-          borderRadius: 12,
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          elevation: 5,
-          borderWidth: 1,
-          borderColor: isDark ? "#334155" : "#E2E8F0",
-          zIndex: 500,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <Globe size={18} color={isDark ? "#F8FAFC" : "#0F172A"} weight="fill" />
-        <Text style={{ color: isDark ? "#F8FAFC" : "#0F172A", fontWeight: "600", fontSize: 14 }}>
-          {mapType === "standard" ? "Uydu" : "Harita"}
-        </Text>
-      </Pressable>
+          {/* Selected Weather Location Marker */}
+          {isWeatherSelectionMode && selectedWeatherLocation && (
+            <Marker
+              coordinate={selectedWeatherLocation}
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={1000}
+            >
+              <View
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: "#6C63FF",
+                  borderWidth: 3,
+                  borderColor: "#FFFFFF",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  elevation: 5,
+                }}
+              />
+            </Marker>
+          )}
 
-      {/* Follow-me button */}
-      {!followMe && (
-        <Pressable
-          onPress={() => {
-            userIsInteracting.current = false;
-            setFollowMe(true);
-            if (location) {
-              const nextRegion = {
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              };
-              setRegion(nextRegion);
-              if (mapRef.current) {
-                mapRef.current.animateToRegion(nextRegion, 500);
-              }
-            }
-          }}
+        </MapView>
+
+      {/* Quick Filter Chips */}
+      {filteredPlaces.length > 0 && (
+        <View
           style={{
             position: "absolute",
-            bottom: 140,
-            right: 16,
-            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
-            borderRadius: 14,
-            paddingVertical: 12,
-            paddingHorizontal: 14,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.15,
-            shadowRadius: 12,
-            elevation: 6,
-            borderWidth: 1,
-            borderColor: isDark ? "#334155" : "#E2E8F0",
-            zIndex: 500,
+            top: insets.top + 16,
+            left: 16,
+            right: 80, // Space for filter button
+            zIndex: 400,
           }}
         >
-          <Text style={{ color: isDark ? "#F8FAFC" : "#0F172A", fontWeight: "700" }}>
-            Takip Et
-          </Text>
-        </Pressable>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8 }}
+          >
+            <Pressable
+              onPress={() => {
+                setQuickFilter(quickFilter === "nearest" ? null : "nearest");
+              }}
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                backgroundColor: quickFilter === "nearest" 
+                  ? "#6C63FF" 
+                  : (isDark ? "#334155" : "#F1F5F9"),
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: quickFilter === "nearest"
+                  ? "#6C63FF"
+                  : (isDark ? "#475569" : "#E2E8F0"),
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  color: quickFilter === "nearest"
+                    ? "#FFFFFF"
+                    : (isDark ? "#F8FAFC" : "#0F172A"),
+                }}
+              >
+                {t("filter_nearest")}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                setQuickFilter(quickFilter === "most_popular" ? null : "most_popular");
+              }}
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                backgroundColor: quickFilter === "most_popular"
+                  ? "#6C63FF"
+                  : (isDark ? "#334155" : "#F1F5F9"),
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: quickFilter === "most_popular"
+                  ? "#6C63FF"
+                  : (isDark ? "#475569" : "#E2E8F0"),
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: "600",
+                  color: quickFilter === "most_popular"
+                    ? "#FFFFFF"
+                    : (isDark ? "#F8FAFC" : "#0F172A"),
+                }}
+              >
+                {t("filter_most_popular")}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
       )}
 
-      {/* Filter Buttons */}
+      {/* Top Right Buttons - Wind, Bathymetry, Filter, Map Type, Theme */}
       <View
         style={{
           position: "absolute",
@@ -820,8 +599,96 @@ export default function MapScreen() {
           right: 16,
           flexDirection: "row",
           gap: 12,
+          zIndex: 500,
         }}
       >
+        {/* Wind Button - Activates Location Selection Mode */}
+        <Pressable
+          onPress={() => {
+            setIsWeatherSelectionMode(!isWeatherSelectionMode);
+            if (isWeatherSelectionMode) {
+              // If disabling, close modal and reset
+              setShowWeatherModal(false);
+              setSelectedWeatherLocation(null);
+              setSelectedWeatherData(null);
+              setWeatherModalLoading(false);
+            }
+          }}
+          style={{
+            width: 52,
+            height: 52,
+            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+            borderRadius: 16,
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            borderWidth: isWeatherSelectionMode ? 2 : 1,
+            borderColor: isWeatherSelectionMode ? "#6C63FF" : (isDark ? "#334155" : "#E2E8F0"),
+          }}
+        >
+          <Svg width={24} height={24} viewBox="0 0 256 256">
+            <Path
+              d="M224,224H182.94l-6.3-44.12,3.24,1.91a16,16,0,0,0,21.91-5.67l12-20.34a16,16,0,0,0-5.67-21.91l-35-20.61,40.69-69.13a16,16,0,0,0-5.67-21.91l-20.34-12a16,16,0,0,0-21.91,5.67l-20.61,35L76.12,10.22a16,16,0,0,0-21.91,5.67l-12,20.33a16,16,0,0,0,5.67,21.92l35,20.61L42.21,147.88a16,16,0,0,0,5.67,21.91l20.34,12a15.57,15.57,0,0,0,10.58,2L73.06,224H32a8,8,0,0,0,0,16H224a8,8,0,0,0,0-16Zm-24-76.34L188,168l-69.13-40.69,12-20.35ZM179.66,24,200,36l-40.69,69.14L139,93.17ZM56,44.35,68,24,137.14,64.7l-12,20.35ZM76.34,168,56,156,96.69,86.86l20.36,12Zm12.88,56L98,162.8l12.77-21.7L159,169.5l7.79,54.5Z"
+              fill={isWeatherSelectionMode ? "#6C63FF" : (isDark ? "#94A3B8" : "#64748B")}
+            />
+          </Svg>
+        </Pressable>
+
+        {/* Bathymetry Toggle Button */}
+        <Pressable
+          onPress={() => {
+            setIsBathymetryEnabled(!isBathymetryEnabled);
+            if (isBathymetryEnabled) {
+              clearDepthPin();
+            }
+          }}
+          style={{
+            width: 52,
+            height: 52,
+            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+            borderRadius: 16,
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            borderWidth: isBathymetryEnabled ? 2 : 1,
+            borderColor: isBathymetryEnabled ? "#6C63FF" : (isDark ? "#334155" : "#E2E8F0"),
+          }}
+        >
+          <Fish size={22} color={isBathymetryEnabled ? "#6C63FF" : (isDark ? "#94A3B8" : "#64748B")} weight={isBathymetryEnabled ? "fill" : "regular"} />
+        </Pressable>
+
+        {/* Map Type Toggle Button - Icon Only */}
+        <Pressable
+          onPress={() => {
+            setMapType(mapType === "standard" ? "satellite" : "standard");
+          }}
+          style={{
+            width: 52,
+            height: 52,
+            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+            borderRadius: 16,
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            borderWidth: mapType === "satellite" ? 2 : 1,
+            borderColor: mapType === "satellite" ? "#6C63FF" : (isDark ? "#334155" : "#E2E8F0"),
+          }}
+        >
+          <Globe size={22} color={mapType === "satellite" ? "#6C63FF" : (isDark ? "#94A3B8" : "#64748B")} weight={mapType === "satellite" ? "fill" : "regular"} />
+        </Pressable>
+
         {/* Filter Button */}
         <Pressable
           onPress={() => {
@@ -844,659 +711,116 @@ export default function MapScreen() {
             shadowOpacity: 0.15,
             shadowRadius: 12,
             elevation: 8,
-            borderWidth: showFilterPanel ? 2 : 0,
-            borderColor: "#6C63FF",
+            borderWidth: showFilterPanel ? 2 : 1,
+            borderColor: showFilterPanel ? "#6C63FF" : (isDark ? "#334155" : "#E2E8F0"),
           }}
         >
-          <Sliders size={22} color={showFilterPanel ? "#6C63FF" : (isDark ? "#94A3B8" : "#64748B")} weight="regular" />
+          <Sliders size={22} color={showFilterPanel ? "#6C63FF" : (isDark ? "#94A3B8" : "#64748B")} weight={showFilterPanel ? "fill" : "regular"} />
+        </Pressable>
+
+        {/* Theme Toggle Button */}
+        <Pressable
+          onPress={async () => {
+            await toggleTheme();
+          }}
+          style={{
+            width: 52,
+            height: 52,
+            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+            borderRadius: 16,
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            borderWidth: 1,
+            borderColor: isDark ? "#334155" : "#E2E8F0",
+          }}
+        >
+          {isDark ? (
+            <Sun size={20} color="#FFD700" weight="fill" />
+          ) : (
+            <Moon size={20} color="#6C63FF" weight="fill" />
+          )}
         </Pressable>
       </View>
 
-
       {/* Professional Filter Panel */}
-      {showFilterPanel && (
-        <View
-          style={{
-            position: "absolute",
-            top: insets.top + 80,
-            left: 16,
-            right: 16,
-            backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
-            borderRadius: 20,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.25,
-            shadowRadius: 16,
-            elevation: 16,
-            maxHeight: SCREEN_WIDTH * 0.85,
-            overflow: "hidden",
-          }}
-        >
-          {/* Header */}
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: 20,
-              paddingBottom: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: isDark ? "#2E303C" : "#E2E8F0",
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 20,
-                fontWeight: "700",
-                color: isDark ? "#ECEDEE" : "#11181C",
-              }}
-            >
-              Filtreler
-            </Text>
-            <Pressable
-              onPress={() => {
-                setShowFilterPanel(false);
-                // Pending değişiklikleri iptal et
-                setPendingRadius(radius);
-                setPendingCategories(selectedCategories);
-                setIsRadiusExpanded(false);
-                setIsCategoryExpanded(false);
-              }}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                backgroundColor: isDark ? "#2E303C" : "#F1F5F9",
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <X size={18} color={isDark ? "#94A3B8" : "#64748B"} weight="regular" />
-            </Pressable>
-          </View>
-
-          {/* Scrollable Content */}
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 20, paddingTop: 16 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Accordion: Radius Filter */}
-            <FilterAccordion
-              title="Yarıçap"
-              summary={pendingRadius === 5 ? "Varsayılan: 5 km" : `${pendingRadius} km`}
-              isExpanded={isRadiusExpanded}
-              onToggle={() => setIsRadiusExpanded(!isRadiusExpanded)}
-              isDark={isDark}
-            >
-            {/* Radius Display */}
-            <View style={{ marginBottom: 16, alignItems: "center" }}>
-              <Text
-                style={{
-                  fontSize: 32,
-                  fontWeight: "700",
-                  color: "#6C63FF",
-                  marginBottom: 4,
-                }}
-              >
-                {pendingRadius} km
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: isDark ? "#94A3B8" : "#64748B",
-                }}
-              >
-                {previewFilteredCount} mekan gösterilecek
-              </Text>
-            </View>
-
-            {/* Slider */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 }}>
-              <Text style={{ fontSize: 12, color: isDark ? "#94A3B8" : "#64748B", minWidth: 35, fontWeight: "500" }}>
-                1 km
-              </Text>
-              <View style={{ flex: 1, height: 40, justifyContent: "center" }}>
-                <Pressable
-                  style={{
-                    height: 40,
-                    justifyContent: "center",
-                  }}
-                  onPress={(e) => {
-                    const { locationX } = e.nativeEvent;
-                    const sliderWidth = SCREEN_WIDTH - 32 - 70 - 24; // screen width - padding - labels - gap
-                    const percentage = Math.max(0, Math.min(1, locationX / sliderWidth));
-                    const newRadius = Math.round(1 + percentage * 19);
-                    setPendingRadius(newRadius);
-                  }}
-                >
-                  <View
-                    style={{
-                      height: 6,
-                      backgroundColor: isDark ? "#2E303C" : "#E2E8F0",
-                      borderRadius: 3,
-                      position: "relative",
-                    }}
-                  >
-                    <View
-                      style={{
-                        position: "absolute",
-                        left: 0,
-                        width: `${((pendingRadius - 1) / 19) * 100}%`,
-                        height: 6,
-                        backgroundColor: "#6C63FF",
-                        borderRadius: 3,
-                      }}
-                    />
-                    <View
-                      style={{
-                        position: "absolute",
-                        left: `${((pendingRadius - 1) / 19) * 100}%`,
-                        width: 24,
-                        height: 24,
-                        backgroundColor: "#6C63FF",
-                        borderRadius: 12,
-                        marginLeft: -12,
-                        marginTop: -9,
-                        shadowColor: "#6C63FF",
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.4,
-                        shadowRadius: 4,
-                        elevation: 4,
-                        borderWidth: 3,
-                        borderColor: isDark ? "#1E293B" : "#FFFFFF",
-                      }}
-                    />
-                  </View>
-                </Pressable>
-              </View>
-              <Text style={{ fontSize: 12, color: isDark ? "#94A3B8" : "#64748B", minWidth: 35, fontWeight: "500" }}>
-                20 km
-              </Text>
-            </View>
-
-            {/* Quick Select Buttons */}
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              {[1, 3, 5, 10, 20].map((r) => (
-                <Pressable
-                  key={r}
-                  onPress={() => setPendingRadius(r)}
-                  style={{
-                    flex: 1,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRadius: 10,
-                    backgroundColor: pendingRadius === r ? "#6C63FF" : isDark ? "#2E303C" : "#F1F5F9",
-                    alignItems: "center",
-                    borderWidth: pendingRadius === r ? 0 : 1,
-                    borderColor: isDark ? "#2E303C" : "#E2E8F0",
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      fontWeight: "600",
-                      color: pendingRadius === r ? "#FFFFFF" : isDark ? "#94A3B8" : "#64748B",
-                    }}
-                  >
-                    {r} km
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </FilterAccordion>
-
-          {/* Accordion: Category Filter */}
-          <FilterAccordion
-            title="Kategoriler"
-            summary={
-              pendingCategories.length === 0
-                ? "Kategori seçilmedi"
-                : `${pendingCategories.length} kategori seçili`
-            }
-            isExpanded={isCategoryExpanded}
-            onToggle={() => setIsCategoryExpanded(!isCategoryExpanded)}
-            isDark={isDark}
-          >
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-              {CATEGORIES.map((cat) => {
-                // If pendingCategories is empty, none are selected (show only user location)
-                // If pendingCategories has items, only those are selected
-                const isSelected = pendingCategories.length > 0 && pendingCategories.includes(cat.category);
-                return (
-                  <Pressable
-                    key={cat.id}
-                    onPress={() => {
-                      if (pendingCategories.includes(cat.category)) {
-                        // This category is selected, remove it
-                        const newCategories = pendingCategories.filter((c) => c !== cat.category);
-                        setPendingCategories(newCategories);
-                      } else {
-                        // This category is not selected, add it
-                        setPendingCategories([...pendingCategories, cat.category]);
-                      }
-                    }}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                      borderRadius: 24,
-                      backgroundColor: isSelected
-                        ? `${cat.color}20`
-                        : isDark
-                        ? "#2E303C"
-                        : "#F1F5F9",
-                      borderWidth: isSelected ? 2 : 1,
-                      borderColor: isSelected
-                        ? cat.color
-                        : isDark
-                        ? "#2E303C"
-                        : "#E2E8F0",
-                      minHeight: 44, // Touch target
-                    }}
-                  >
-                    {isSelected && (
-                      <View
-                        style={{
-                          width: 18,
-                          height: 18,
-                          borderRadius: 9,
-                          backgroundColor: cat.color,
-                          justifyContent: "center",
-                          alignItems: "center",
-                          marginRight: 6,
-                        }}
-                      >
-                        <Check size={12} color="#FFFFFF" weight="bold" />
-                      </View>
-                    )}
-                    <TablerIcon
-                      name={cat.iconName}
-                      size={18}
-                      color={isSelected ? cat.color : isDark ? "#94A3B8" : "#64748B"}
-                    />
-                    <Text
-                      style={{
-                        marginLeft: 8,
-                        fontSize: 13,
-                        fontWeight: "600",
-                        color: isSelected
-                          ? cat.color
-                          : isDark
-                          ? "#94A3B8"
-                          : "#64748B",
-                      }}
-                    >
-                      {t(cat.nameKey)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {pendingCategories.length > 0 && (
-              <Pressable
-                onPress={() => setPendingCategories([])}
-                style={{
-                  marginTop: 16,
-                  paddingVertical: 10,
-                  paddingHorizontal: 16,
-                  borderRadius: 12,
-                  backgroundColor: isDark ? "#2E303C" : "#F1F5F9",
-                  alignItems: "center",
-                  borderWidth: 1,
-                  borderColor: isDark ? "#2E303C" : "#E2E8F0",
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 13,
-                    fontWeight: "600",
-                    color: "#6C63FF",
-                  }}
-                >
-                  Tümünü Temizle
-                </Text>
-              </Pressable>
-            )}
-          </FilterAccordion>
-          </ScrollView>
-
-          {/* Action Buttons - Fixed at bottom */}
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 12,
-              padding: 20,
-              paddingTop: 12,
-              borderTopWidth: 1,
-              borderTopColor: isDark ? "#2E303C" : "#E2E8F0",
-              backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
-            }}
-          >
-            <Pressable
-              onPress={() => {
-                // Reset to defaults
-                setPendingRadius(5);
-                setPendingCategories([]);
-                setRadius(5);
-                setSelectedCategories([]);
-                setIsRadiusExpanded(false);
-                setIsCategoryExpanded(false);
-              }}
-              style={{
-                flex: 1,
-                paddingVertical: 14,
-                borderRadius: 12,
-                backgroundColor: isDark ? "#2E303C" : "#F1F5F9",
-                alignItems: "center",
-                borderWidth: 1,
-                borderColor: isDark ? "#2E303C" : "#E2E8F0",
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 15,
-                  fontWeight: "600",
-                  color: isDark ? "#94A3B8" : "#64748B",
-                }}
-              >
-                Temizle
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                // Apply filters
-                setRadius(pendingRadius);
-                setSelectedCategories(pendingCategories);
-                setShowFilterPanel(false);
-                setIsRadiusExpanded(false);
-                setIsCategoryExpanded(false);
-              }}
-              style={{
-                flex: 1,
-                paddingVertical: 14,
-                borderRadius: 12,
-                backgroundColor: "#6C63FF",
-                alignItems: "center",
-                shadowColor: "#6C63FF",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-                elevation: 4,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 15,
-                  fontWeight: "600",
-                  color: "#FFFFFF",
-                }}
-              >
-                Uygula
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-
-      {/* Loading Indicator */}
-      {loadingPlaces && (
-        <View
-          style={{
-            position: "absolute",
-            top: insets.top + 80,
-            left: 16,
-            right: 16,
-          }}
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
-              borderRadius: 12,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              elevation: 4,
-            }}
-          >
-            <ActivityIndicator size="small" color="#6C63FF" />
-            <Text
-              style={{
-                marginLeft: 10,
-                fontSize: 14,
-                color: isDark ? "#94A3B8" : "#64748B",
-              }}
-            >
-              {t("loading_places")}
-            </Text>
-          </View>
-        </View>
-      )}
+      <FilterPanel
+        isVisible={showFilterPanel}
+        onClose={() => {
+          setShowFilterPanel(false);
+          // Pending değişiklikleri iptal et
+          setPendingRadius(radius);
+          setPendingCategories(selectedCategories);
+          setPendingCollections(selectedCollections);
+        }}
+        pendingRadius={pendingRadius}
+        setPendingRadius={setPendingRadius}
+        pendingRadiusEnabled={pendingRadiusEnabled}
+        setPendingRadiusEnabled={setPendingRadiusEnabled}
+        pendingCategories={pendingCategories}
+        setPendingCategories={setPendingCategories}
+        pendingCollections={pendingCollections}
+        setPendingCollections={setPendingCollections}
+        onApplyFilters={() => {
+          setRadius(pendingRadius);
+          setIsRadiusEnabled(pendingRadiusEnabled);
+          setSelectedCategories(pendingCategories);
+          setSelectedCollections(pendingCollections);
+          setShowFilterPanel(false);
+        }}
+        onResetFilters={() => {
+          setPendingRadius(5);
+          setPendingRadiusEnabled(true);
+          setPendingCategories([]);
+          setPendingCollections([]);
+          setRadius(5);
+          setIsRadiusEnabled(true);
+          setSelectedCategories([]);
+          setSelectedCollections([]);
+        }}
+        previewCount={previewFilteredCount}
+        isDark={isDark}
+      />
 
       {/* Bottom Place Card */}
-      <Animated.View
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          transform: [
-            {
-              translateY: cardAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [300, 0],
-              }),
-            },
-          ],
-          opacity: cardAnim,
-        }}
-        pointerEvents={selectedPlace ? "auto" : "none"}
-      >
-        <View
-          style={{
-            backgroundColor: isDark ? "#1A1B26" : "#FFFFFF",
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingTop: 8,
-            paddingHorizontal: 20,
-            paddingBottom: insets.bottom + 16,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: -8 },
-            shadowOpacity: 0.15,
-            shadowRadius: 20,
-            elevation: 24,
-          }}
-        >
-          {/* Handle Bar */}
-          <View style={{ alignItems: "center", paddingVertical: 8 }}>
-            <View
-              style={{
-                width: 40,
-                height: 4,
-                borderRadius: 2,
-                backgroundColor: isDark ? "#2E303C" : "#E2E8F0",
-              }}
-            />
-          </View>
+      <PlaceBottomSheet
+        place={selectedPlace}
+        isVisible={!!selectedPlace}
+        collections={selectedPlace ? (placeCollectionsMap[selectedPlace.id] || []) : []}
+        onAddToCollection={() => setShowAddToCollection(true)}
+      />
 
-          {selectedPlace && (
-            <Pressable onPress={() => router.push(`/(places)/${selectedPlace.id}`)}>
-              {/* Place Info Row */}
-              <View style={{ flexDirection: "row", marginBottom: 16 }}>
-                {/* Place Image */}
-                {selectedPlace.images && selectedPlace.images.length > 0 ? (
-                  <Image
-                    source={{ uri: selectedPlace.images[0] }}
-                    style={{
-                      width: 90,
-                      height: 90,
-                      borderRadius: 16,
-                    }}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View
-                    style={{
-                      width: 90,
-                      height: 90,
-                      borderRadius: 16,
-                      backgroundColor: getCategoryColor(selectedPlace.category) + "20",
-                      justifyContent: "center",
-                      alignItems: "center",
-                    }}
-                  >
-                    <TablerIcon
-                      name={iconNameForPlace}
-                      size={36}
-                      color={getCategoryColor(selectedPlace.category)}
-                      strokeWidth={1.5}
-                    />
-                  </View>
-                )}
+      {/* Weather Widgets */}
+      <WeatherWidgets
+        isWeatherSelectionMode={isWeatherSelectionMode}
+        setIsWeatherSelectionMode={setIsWeatherSelectionMode}
+        showWeatherModal={showWeatherModal}
+        setShowWeatherModal={setShowWeatherModal}
+        selectedWeatherLocation={selectedWeatherLocation}
+        setSelectedWeatherLocation={setSelectedWeatherLocation}
+        selectedWeatherData={selectedWeatherData}
+        setSelectedWeatherData={setSelectedWeatherData}
+        weatherModalLoading={weatherModalLoading}
+        setWeatherModalLoading={setWeatherModalLoading}
+        weather={weather}
+        forecastList={forecastList}
+        isDark={isDark}
+        insets={insets}
+      />
 
-                {/* Place Details */}
-                <View style={{ flex: 1, marginLeft: 14, justifyContent: "center" }}>
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "700",
-                      color: isDark ? "#ECEDEE" : "#11181C",
-                      marginBottom: 4,
-                    }}
-                    numberOfLines={1}
-                  >
-                    {selectedPlace.name}
-                  </Text>
-                  
-                  <View
-                    style={{
-                      alignSelf: "flex-start",
-                      backgroundColor: getCategoryColor(selectedPlace.category) + "20",
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 8,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        fontWeight: "600",
-                        color: getCategoryColor(selectedPlace.category),
-                      }}
-                    >
-                      {t(`category_${selectedPlace.category}`)}
-                    </Text>
-                  </View>
+      {/* Add to Collection Modal */}
+      {selectedPlace && (
+        <AddToCollectionModal
+          visible={showAddToCollection}
+          placeId={selectedPlace.id}
+          onClose={() => setShowAddToCollection(false)}
+        />
+      )}
 
-                  {selectedPlace.rating > 0 && (
-                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-                      <Star size={14} color="#FFD700" weight="fill" />
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          fontWeight: "600",
-                          color: isDark ? "#ECEDEE" : "#11181C",
-                          marginLeft: 4,
-                        }}
-                      >
-                        {selectedPlace.rating.toFixed(1)}
-                      </Text>
-                    </View>
-                  )}
-
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <MapPin size={13} color={isDark ? "#94A3B8" : "#64748B"} weight="regular" />
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        color: isDark ? "#94A3B8" : "#64748B",
-                        marginLeft: 4,
-                        flex: 1,
-                      }}
-                      numberOfLines={1}
-                    >
-                      {selectedPlace.address}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Navigation Buttons */}
-              <View style={{ flexDirection: "row", gap: 12 }}>
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    openExternalMap("walking");
-                  }}
-                  style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: "#6C63FF",
-                    paddingVertical: 14,
-                    paddingHorizontal: 20,
-                    borderRadius: 14,
-                    shadowColor: "#6C63FF",
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 8,
-                    elevation: 4,
-                  }}
-                >
-                  <PersonSimpleWalk size={20} color="#FFFFFF" weight="fill" />
-                  <Text
-                    style={{
-                      color: "#FFFFFF",
-                      fontSize: 15,
-                      fontWeight: "700",
-                      marginLeft: 8,
-                    }}
-                  >
-                    {t("walking") || "Yürüyüş"}
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    openExternalMap("driving");
-                  }}
-                  style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: isDark ? "#2E303C" : "#F1F5F9",
-                    paddingVertical: 14,
-                    paddingHorizontal: 20,
-                    borderRadius: 14,
-                  }}
-                >
-                  <Car size={20} color={isDark ? "#ECEDEE" : "#11181C"} weight="fill" />
-                  <Text
-                    style={{
-                      color: isDark ? "#ECEDEE" : "#11181C",
-                      fontSize: 15,
-                      fontWeight: "700",
-                      marginLeft: 8,
-                    }}
-                  >
-                    {t("driving") || "Araç"}
-                  </Text>
-                </Pressable>
-              </View>
-            </Pressable>
-          )}
-        </View>
-      </Animated.View>
     </View>
   );
 }

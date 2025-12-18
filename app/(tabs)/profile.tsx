@@ -1,55 +1,68 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, ScrollView, Alert } from "react-native";
+import React from "react";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { User, Envelope, RadioButton } from "phosphor-react-native";
+import { User, Envelope, RadioButton, Briefcase, MapPin } from "phosphor-react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
-
-type UserRole = "local" | "unlocal" | "business" | null;
+import { Card } from "@/components/ui/Card";
+import { ThemeToggle } from "@/components/ThemeToggle";
+// ViewModel
+import { useProfileViewModel, type UserRole } from "@/viewmodels/profile/useProfileViewModel";
+import { useAdminStore } from "@/stores/admin-store";
+import { router } from "expo-router";
 
 export default function ProfileScreen() {
-  const { colorScheme, themeMode, setThemeMode } = useTheme();
+  const { colorScheme } = useTheme();
   const { t, language, setLanguage } = useI18n();
   const isDark = colorScheme === "dark";
-  const [userRole, setUserRole] = useState<UserRole>(null);
 
-  const THEME_OPTIONS: { mode: "system" | "light" | "dark"; labelKey: string }[] = [
-    { mode: "system", labelKey: "system" },
-    { mode: "light", labelKey: "light" },
-    { mode: "dark", labelKey: "dark" },
-  ];
+  // ViewModel - Business logic extracted
+  const { userRole, setUserRole, handleLogin } = useProfileViewModel();
+  const { isAdmin } = useAdminStore();
+
+  // Eğer kullanıcı admin ise, profil ekranına geldiğinde otomatik admin dashboard'a yönlendir
+  React.useEffect(() => {
+    if (isAdmin) {
+      router.replace("/(admin)/dashboard");
+    }
+  }, [isAdmin]);
 
   const LANGUAGE_OPTIONS: { code: "tr" | "en"; label: string; nativeLabel: string }[] = [
     { code: "tr", label: "Turkish", nativeLabel: "Türkçe" },
     { code: "en", label: "English", nativeLabel: "English" },
   ];
 
-  const USER_ROLES: { role: UserRole; label: string; description: string }[] = [
+  const USER_ROLES: { 
+    role: UserRole; 
+    labelKey: string; 
+    descriptionKey: string;
+    icon: React.ComponentType<any>;
+    iconColor: string;
+  }[] = [
     {
       role: "local",
-      label: "Local Kullanıcı",
-      description: "Bulunduğun şehirde hizmet veren kullanıcılar",
+      labelKey: "user_role.local",
+      descriptionKey: "user_role.local_desc",
+      icon: User,
+      iconColor: "#6C63FF",
     },
     {
       role: "unlocal",
-      label: "Ziyaretçi / Unlocal Kullanıcı",
-      description: "Sadece keşfetmek isteyen kullanıcılar",
+      labelKey: "user_role.unlocal",
+      descriptionKey: "user_role.unlocal_desc",
+      icon: MapPin,
+      iconColor: "#10B981",
     },
     {
       role: "business",
-      label: "Business Kullanıcı",
-      description: "İşletme sahipleri ve profesyoneller",
+      labelKey: "user_role.business",
+      descriptionKey: "user_role.business_desc",
+      icon: Briefcase,
+      iconColor: "#F59E0B",
     },
   ];
 
-  const handleLogin = (method: string) => {
-    Alert.alert(
-      t("coming_soon"),
-      `${method} ${t("coming_soon_message")}`,
-      [{ text: t("ok") }]
-    );
-  };
 
   return (
     <SafeAreaView
@@ -62,26 +75,16 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
       >
         {/* Header */}
-        <View className={`px-6 pt-6 pb-4`}>
+        <View className={`px-6 pt-6 pb-4 flex-row items-center justify-between`}>
           <Text className={`text-3xl font-bold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
             {t("profile")}
           </Text>
+          <ThemeToggle size={20} />
         </View>
 
         {/* Profile Card */}
         <View className="px-6 mb-6">
-          <View
-            className={`rounded-2xl p-8 shadow-sm border items-center ${
-              isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"
-            }`}
-            style={{
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 4,
-            }}
-          >
+          <Card variant="default" padding="lg" className="items-center">
             {/* Avatar */}
             <View
               className={`w-20 h-20 rounded-full items-center justify-center mb-4 ${
@@ -106,30 +109,19 @@ export default function ProfileScreen() {
             >
               {t("login_or_signup")}
             </Text>
-          </View>
+          </Card>
         </View>
 
         {/* User Role Selection Card */}
         <View className="px-6 mb-6">
-          <View
-            className={`rounded-2xl p-6 shadow-sm border ${
-              isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"
-            }`}
-            style={{
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 4,
-            }}
-          >
+          <Card variant="default" padding="md">
             <View className="flex-row items-center justify-between mb-4">
               <Text
                 className={`text-lg font-bold ${
                   isDark ? "text-card-foreground-dark" : "text-card-foreground"
                 }`}
               >
-                Kullanıcı Türü
+                {t("user_type")}
               </Text>
               {!userRole && (
                 <Text
@@ -137,19 +129,21 @@ export default function ProfileScreen() {
                     isDark ? "text-orange-400" : "text-orange-600"
                   } font-medium`}
                 >
-                  * Zorunlu
+                  {t("required")}
                 </Text>
               )}
             </View>
 
-            <View className="gap-3">
+            {/* Horizontal Icon Cards */}
+            <View className="flex-row gap-3">
               {USER_ROLES.map((roleOption) => {
                 const selected = userRole === roleOption.role;
+                const IconComponent = roleOption.icon;
                 return (
                   <Pressable
                     key={roleOption.role}
                     onPress={() => setUserRole(roleOption.role)}
-                    className={`flex-row items-center justify-between px-4 py-4 rounded-xl border ${
+                    className={`flex-1 items-center justify-center py-4 px-3 rounded-xl border ${
                       selected
                         ? "border-primary bg-primary/10"
                         : isDark
@@ -157,204 +151,194 @@ export default function ProfileScreen() {
                         : "border-border bg-transparent"
                     } active:opacity-70`}
                     style={{
-                      minHeight: 56, // Touch target
+                      minHeight: 100,
                     }}
                   >
-                    <View className="flex-1">
-                      <Text
-                        className={`text-base font-semibold ${
-                          isDark ? "text-card-foreground-dark" : "text-card-foreground"
-                        }`}
-                      >
-                        {roleOption.label}
-                      </Text>
-                      <Text
-                        className={`text-sm mt-1 ${
-                          isDark ? "text-muted-foreground-dark" : "text-muted-foreground"
-                        }`}
-                      >
-                        {roleOption.description}
-                      </Text>
+                    <View
+                      className={`w-12 h-12 rounded-full items-center justify-center mb-2 ${
+                        selected
+                          ? "bg-primary/20"
+                          : isDark
+                          ? "bg-muted-dark"
+                          : "bg-muted"
+                      }`}
+                    >
+                      <IconComponent
+                        size={24}
+                        color={selected ? roleOption.iconColor : (isDark ? "#94A3B8" : "#64748B")}
+                        weight={selected ? "fill" : "regular"}
+                      />
                     </View>
-                    <RadioButton
-                      size={22}
-                      color={selected ? "#6C63FF" : isDark ? "#94A3B8" : "#64748B"}
-                      weight={selected ? "fill" : "regular"}
-                    />
+                    <Text
+                      className={`text-xs font-semibold text-center ${
+                        selected
+                          ? isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                          : isDark ? "text-muted-foreground-dark" : "text-muted-foreground"
+                      }`}
+                      numberOfLines={2}
+                    >
+                      {t(roleOption.labelKey)}
+                    </Text>
                   </Pressable>
                 );
               })}
             </View>
-          </View>
+          </Card>
         </View>
 
         {/* Login Methods Card - Shown for all roles */}
         {userRole && (
           <View className="px-6 mb-6">
-            <View
-              className={`rounded-2xl p-6 shadow-sm border ${
-                isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"
-              }`}
-              style={{
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 8,
-                elevation: 4,
-              }}
-            >
+            <Card variant="default" padding="md">
               <Text
                 className={`text-lg font-bold mb-4 ${
                   isDark ? "text-card-foreground-dark" : "text-card-foreground"
                 }`}
               >
-                Giriş Yöntemleri
+                {t("login_methods")}
               </Text>
 
-              <View className="gap-3">
+              {/* Horizontal Icon Cards - 4 in a row */}
+              <View className="flex-row gap-2">
                 {/* Google Login */}
                 <Pressable
                   onPress={() => handleLogin("Google")}
-                  className={`flex-row items-center justify-center px-6 py-4 rounded-xl border ${
+                  className={`flex-1 items-center justify-center py-4 px-2 rounded-xl border ${
                     isDark
                       ? "bg-card-dark border-border-dark"
-                      : "bg-card border-border"
+                      : "bg-muted border-border"
                   } active:opacity-80`}
-                  style={{ minHeight: 52 }}
+                  style={{ minHeight: 100 }}
                 >
-                  <Ionicons name="logo-google" size={20} color="#4285F4" />
-                  <Text
-                    className={`ml-3 font-semibold ${
-                      isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                  <View
+                    className={`w-10 h-10 rounded-full items-center justify-center mb-2 ${
+                      isDark ? "bg-muted-dark" : "bg-card"
                     }`}
                   >
-                    Google ile Giriş
+                    <Ionicons name="logo-google" size={20} color="#4285F4" />
+                  </View>
+                  <Text
+                    className={`text-xs font-semibold text-center ${
+                      isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                    }`}
+                    numberOfLines={2}
+                  >
+                    {t("login.google")}
                   </Text>
                 </Pressable>
 
                 {/* Apple Login */}
                 <Pressable
                   onPress={() => handleLogin("Apple")}
-                  className={`flex-row items-center justify-center px-6 py-4 rounded-xl ${
-                    isDark ? "bg-black border border-border-dark" : "bg-black"
+                  className={`flex-1 items-center justify-center py-4 px-2 rounded-xl border ${
+                    isDark
+                      ? "bg-card-dark border-border-dark"
+                      : "bg-muted border-border"
                   } active:opacity-80`}
-                  style={{ minHeight: 52 }}
+                  style={{ minHeight: 100 }}
                 >
-                  <Ionicons name="logo-apple" size={20} color="#FFFFFF" />
-                  <Text className="ml-3 font-semibold text-white">Apple ile Giriş</Text>
+                  <View
+                    className={`w-10 h-10 rounded-full items-center justify-center mb-2 ${
+                      isDark ? "bg-muted-dark" : "bg-card"
+                    }`}
+                  >
+                    <Ionicons name="logo-apple" size={20} color={isDark ? "#94A3B8" : "#64748B"} />
+                  </View>
+                  <Text
+                    className={`text-xs font-semibold text-center ${
+                      isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                    }`}
+                    numberOfLines={2}
+                  >
+                    {t("login.apple")}
+                  </Text>
                 </Pressable>
 
                 {/* Facebook Login */}
                 <Pressable
                   onPress={() => handleLogin("Facebook")}
-                  className="flex-row items-center justify-center px-6 py-4 rounded-xl bg-[#1877F2] active:opacity-80"
-                  style={{ minHeight: 52 }}
-                >
-                  <Ionicons name="logo-facebook" size={20} color="#FFFFFF" />
-                  <Text className="ml-3 font-semibold text-white">Facebook ile Giriş</Text>
-                </Pressable>
-
-                {/* Email Login */}
-                <Pressable
-                  onPress={() => handleLogin("E-posta")}
-                  className={`flex-row items-center justify-center px-6 py-4 rounded-xl ${
-                    isDark ? "bg-muted-dark" : "bg-muted"
+                  className={`flex-1 items-center justify-center py-4 px-2 rounded-xl border ${
+                    isDark
+                      ? "bg-card-dark border-border-dark"
+                      : "bg-muted border-border"
                   } active:opacity-80`}
-                  style={{ minHeight: 52 }}
+                  style={{ minHeight: 100 }}
                 >
-                  <Envelope size={20} color={isDark ? "#94A3B8" : "#64748B"} weight="regular" />
-                  <Text
-                    className={`ml-3 font-semibold ${
-                      isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                  <View
+                    className={`w-10 h-10 rounded-full items-center justify-center mb-2 ${
+                      isDark ? "bg-muted-dark" : "bg-card"
                     }`}
                   >
-                    E-posta ile Giriş
+                    <Ionicons name="logo-facebook" size={20} color={isDark ? "#94A3B8" : "#1877F2"} />
+                  </View>
+                  <Text
+                    className={`text-xs font-semibold text-center ${
+                      isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                    }`}
+                    numberOfLines={2}
+                  >
+                    {t("login.facebook")}
+                  </Text>
+                </Pressable>
+
+                {/* Email Login - use for admin login */}
+                <Pressable
+                  onPress={() => router.push("/(admin)/login")}
+                  className={`flex-1 items-center justify-center py-4 px-2 rounded-xl border ${
+                    isDark
+                      ? "bg-card-dark border-border-dark"
+                      : "bg-muted border-border"
+                  } active:opacity-80`}
+                  style={{ minHeight: 100 }}
+                >
+                  <View
+                    className={`w-10 h-10 rounded-full items-center justify-center mb-2 ${
+                      isDark ? "bg-muted-dark" : "bg-card"
+                    }`}
+                  >
+                    <Envelope size={20} color={isDark ? "#94A3B8" : "#64748B"} weight="regular" />
+                  </View>
+                  <Text
+                    className={`text-xs font-semibold text-center ${
+                      isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                    }`}
+                    numberOfLines={2}
+                  >
+                    {t("login.email")}
                   </Text>
                 </Pressable>
               </View>
-            </View>
+            </Card>
           </View>
         )}
 
-        {/* Theme Settings Card */}
-        <View className="px-6 mb-6">
-          <View
-            className={`rounded-2xl p-6 shadow-sm border ${
-              isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"
-            }`}
-            style={{
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 4,
-            }}
-          >
-            <Text
-              className={`text-lg font-bold mb-4 ${
-                isDark ? "text-card-foreground-dark" : "text-card-foreground"
-              }`}
-            >
-              Tema
-            </Text>
-
-            <View className="gap-3">
-              {THEME_OPTIONS.map((option) => {
-                const selected = themeMode === option.mode;
-                return (
-                  <Pressable
-                    key={option.mode}
-                    onPress={() => setThemeMode(option.mode)}
-                    className={`flex-row items-center justify-between px-4 py-4 rounded-xl border ${
-                      selected
-                        ? "border-primary bg-primary/10"
-                        : isDark
-                        ? "border-border-dark bg-transparent"
-                        : "border-border bg-transparent"
-                    } active:opacity-70`}
-                    style={{
-                      minHeight: 56, // Touch target
-                    }}
-                  >
-                    <Text
-                      className={`text-base font-semibold ${
-                        isDark ? "text-card-foreground-dark" : "text-card-foreground"
-                      }`}
-                    >
-                      {t(option.labelKey)}
-                    </Text>
-                    <RadioButton
-                      size={22}
-                      color={selected ? "#6C63FF" : isDark ? "#94A3B8" : "#64748B"}
-                      weight={selected ? "fill" : "regular"}
-                    />
-                  </Pressable>
-                );
-              })}
-            </View>
+        {/* Admin Dashboard Entry - Only visible for admins */}
+        {isAdmin && (
+          <View className="px-6 mb-6">
+            <Card variant="default" padding="md">
+              <Pressable
+                onPress={() => router.push("/(admin)/dashboard")}
+                className={`py-4 px-4 rounded-xl flex-row items-center justify-center gap-3 ${
+                  isDark ? "bg-blue-600" : "bg-blue-500"
+                } active:opacity-80`}
+              >
+                <Text className="text-white text-center font-semibold text-base">
+                  Admin Dashboard
+                </Text>
+              </Pressable>
+            </Card>
           </View>
-        </View>
+        )}
 
         {/* Language Settings Card */}
         <View className="px-6 mb-6">
-          <View
-            className={`rounded-2xl p-6 shadow-sm border ${
-              isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"
-            }`}
-            style={{
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 8,
-              elevation: 4,
-            }}
-          >
+          <Card variant="default" padding="md">
             <Text
               className={`text-lg font-bold mb-4 ${
                 isDark ? "text-card-foreground-dark" : "text-card-foreground"
               }`}
             >
-              Dil
+              {t("language")}
             </Text>
 
             <View className="gap-3">
@@ -400,7 +384,7 @@ export default function ProfileScreen() {
                 );
               })}
             </View>
-          </View>
+          </Card>
         </View>
 
         {/* Version */}

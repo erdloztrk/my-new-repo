@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { View, Text, ScrollView, Pressable, Dimensions, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MagnifyingGlass, Sparkle } from "phosphor-react-native";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
 import Svg, { Defs, RadialGradient, Stop, Rect } from "react-native-svg";
-import * as Location from "expo-location";
-import { getWeather } from "@/components/weather/weatherAPI";
-import { CurrentWeather } from "@/components/weather/weatherTypes";
-import { ComprehensiveWeatherWidget } from "@/components/weather/ComprehensiveWeatherWidget";
+import { WeatherDataCard } from "@/components/weather/WeatherDataCard";
+import { Card } from "@/components/ui/Card";
+import { ThemeToggle } from "@/components/ThemeToggle";
+// ViewModel
+import { useHomeViewModel } from "@/viewmodels/home/useHomeViewModel";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -76,69 +77,16 @@ export default function HomeScreen() {
   const { colorScheme } = useTheme();
   const { t } = useI18n();
   const isDark = colorScheme === "dark";
-  const [weather, setWeather] = useState<CurrentWeather | null>(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const [cityName, setCityName] = useState<string | undefined>(undefined);
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const loadWeather = async () => {
-    try {
-      setWeatherLoading(true);
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") {
-          setWeatherLoading(false);
-          return;
-        }
-
-        const currentLocation = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        
-        setLocation(currentLocation);
-
-        // Get city name from reverse geocoding
-        try {
-          const reverseGeocode = await Location.reverseGeocodeAsync({
-            latitude: currentLocation.coords.latitude,
-            longitude: currentLocation.coords.longitude,
-          });
-          
-          if (reverseGeocode && reverseGeocode.length > 0) {
-            const address = reverseGeocode[0];
-            // Try to get city name, fallback to district or region
-            const city = address.city || address.district || address.subregion || undefined;
-            setCityName(city);
-          }
-        } catch (geocodeError) {
-          console.error("Error reverse geocoding:", geocodeError);
-          // Continue without city name
-        }
-
-        const weatherData = await getWeather({
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-        });
-
-        if (weatherData) {
-          setWeather(weatherData.current);
-        }
-      } catch (error) {
-        console.error("Error loading weather:", error);
-      } finally {
-        setWeatherLoading(false);
-        setRefreshing(false);
-      }
-    };
-
-  useEffect(() => {
-    loadWeather();
-  }, []);
-
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    loadWeather();
-  }, []);
+  // ViewModel - All business logic extracted
+  const {
+    weather,
+    weatherLoading,
+    cityName,
+    location,
+    refreshing,
+    onRefresh,
+  } = useHomeViewModel();
   
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? "#000000" : "#FFFFFF" }}>
@@ -161,15 +109,20 @@ export default function HomeScreen() {
         >
         {/* Header */}
         <View className="px-6 pt-4 pb-6">
-          <Text className={`text-sm font-medium ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-            {t("welcome")}
-          </Text>
-          <Text className={`text-3xl font-bold mt-1 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
-            {t("app_name")}
-          </Text>
-          <Text className={`text-base mt-2 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-            {t("subtitle")}
-          </Text>
+          <View className="flex-row items-start justify-between mb-2">
+            <View className="flex-1">
+              <Text className={`text-sm font-medium ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
+                {t("welcome")}
+              </Text>
+              <Text className={`text-3xl font-bold mt-1 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
+                {t("app_name")}
+              </Text>
+              <Text className={`text-base mt-2 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
+                {t("subtitle")}
+              </Text>
+            </View>
+            <ThemeToggle size={20} />
+          </View>
         </View>
 
         {/* Search Bar Placeholder */}
@@ -183,29 +136,23 @@ export default function HomeScreen() {
         </View>
 
         {/* Weather Widget */}
-        <View className="px-6 mb-6">
-          <ComprehensiveWeatherWidget
-            weather={weather}
-            cityName={cityName}
-            loading={weatherLoading}
-            coordinates={location ? {
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-            } : undefined}
-          />
-        </View>
+        {weather && (
+          <View className="px-6 mb-6">
+            <WeatherDataCard weather={weather} />
+          </View>
+        )}
 
         {/* Featured Section Placeholder */}
         <View className="px-6 mb-8">
           <Text className={`text-lg font-semibold mb-4 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
             {t("featured")}
           </Text>
-          <View className={`rounded-2xl p-6 shadow-sm border items-center ${isDark ? "bg-card-dark border-border-dark" : "bg-card border-border"}`}>
+          <Card variant="default" padding="lg" className="items-center">
             <Sparkle size={40} color="#6C63FF" weight="fill" />
             <Text className={`text-base mt-3 text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
               {t("featured_message")}
             </Text>
-          </View>
+          </Card>
         </View>
       </ScrollView>
       </SafeAreaView>

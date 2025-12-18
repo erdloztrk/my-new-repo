@@ -10,6 +10,7 @@ export interface Place {
     latitude: number;
     longitude: number;
   };
+  geohash?: string; // Geohash for efficient geospatial queries
   images: string[]; // URLs or local paths
   rating: number; // Average rating (0-5)
   reviewCount: number;
@@ -33,6 +34,7 @@ export interface PlaceInput {
     latitude: number;
     longitude: number;
   };
+  geohash?: string; // Will be auto-generated if not provided
   images: string[];
   createdBy: string;
 }

@@ -3,6 +3,8 @@
  * Provides route calculation for walking and driving
  */
 
+import { logWarn, logError } from "@/lib/logger";
+
 export type RouteProfile = "foot-walking" | "driving-car";
 
 export interface RouteCoordinates {
@@ -30,7 +32,7 @@ export async function calculateRoute(
   try {
     // If no API key, fall back to simple straight line calculation
     if (!OPENROUTESERVICE_API_KEY) {
-      console.warn("⚠️ OpenRouteService API key not set. Using fallback route calculation.");
+      logWarn("[RouteService] OpenRouteService API key not set. Using fallback route calculation.");
       return calculateFallbackRoute(start, end);
     }
 
@@ -45,7 +47,7 @@ export async function calculateRoute(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("OpenRouteService API error:", response.status, errorText);
+      logError(`[RouteService] OpenRouteService API error: ${response.status}`, errorText);
       // Fall back to simple route if API fails
       return calculateFallbackRoute(start, end);
     }
@@ -72,7 +74,7 @@ export async function calculateRoute(
       duration: properties.segments?.[0]?.duration || 0,
     };
   } catch (error) {
-    console.error("Error calculating route:", error);
+    logError("[RouteService] Error calculating route:", error);
     // Fall back to simple route calculation
     return calculateFallbackRoute(start, end);
   }

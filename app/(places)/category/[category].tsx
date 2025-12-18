@@ -10,6 +10,7 @@ import { getPlacesByCategory, getAllPlaces } from "@/services/places-service";
 import { Place } from "@/types/place";
 import { Category } from "@/types/category";
 import { PlaceCard } from "@/components/places/PlaceCard";
+import { logDebug, logError } from "@/lib/logger";
 
 export default function CategoryScreen() {
   const { category } = useLocalSearchParams<{ category: Category }>();
@@ -27,17 +28,17 @@ export default function CategoryScreen() {
 
     try {
       setError(null);
-      console.log(`🔍 Loading places for category: ${category}`);
+      logDebug(`[CategoryScreen] Loading places for category: ${category}`);
       const data = await getPlacesByCategory(category);
-      console.log(`📦 Loaded ${data.length} places`);
+      logDebug(`[CategoryScreen] Loaded ${data.length} places`);
       setPlaces(data);
     } catch (err: any) {
-      console.error("❌ Error loading places:", err);
+      logError("[CategoryScreen] Error loading places:", err);
       // More helpful error message
       if (err?.code === "failed-precondition" || err?.message?.includes("index")) {
-        setError("Firebase index required. Please create index in Firebase Console.");
+        setError(t("category.error_firebase_index"));
       } else {
-        setError(`Failed to load places: ${err?.message || "Unknown error"}`);
+        setError(t("category.error_load_failed", { message: err?.message || t("error") }));
       }
     } finally {
       setLoading(false);
@@ -48,7 +49,7 @@ export default function CategoryScreen() {
   useEffect(() => {
     loadPlaces();
     // Debug: Check all places in database
-    getAllPlaces().catch((err) => console.error("Debug: Error getting all places:", err));
+    getAllPlaces().catch((err) => logError("[CategoryScreen] Debug: Error getting all places:", err));
   }, [category]);
 
   const handleRefresh = () => {
@@ -61,7 +62,13 @@ export default function CategoryScreen() {
       <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
         <View className={`px-6 pt-4 pb-4 border-b ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
           <View className="flex-row items-center">
-            <Pressable onPress={() => router.back()} className="mr-3">
+            <Pressable onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/explore");
+              }
+            }} className="mr-3">
               <ArrowLeft size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
             </Pressable>
             <Text className={`text-2xl font-bold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
@@ -81,7 +88,13 @@ export default function CategoryScreen() {
       <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
         <View className={`px-6 pt-4 pb-4 border-b ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
           <View className="flex-row items-center">
-            <Pressable onPress={() => router.back()} className="mr-3">
+            <Pressable onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/explore");
+              }
+            }} className="mr-3">
               <ArrowLeft size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
             </Pressable>
             <Text className={`text-2xl font-bold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>

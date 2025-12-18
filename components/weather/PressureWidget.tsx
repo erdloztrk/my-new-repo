@@ -26,7 +26,7 @@ export function PressureWidget({
   if (pressure === null || pressure === undefined) {
     return (
       <View className="bg-card dark:bg-card-dark rounded-2xl p-3 shadow-sm border border-border dark:border-border-dark">
-        <Text className="text-xs text-muted dark:text-muted-dark text-center">
+        <Text className={`text-xs text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
           Basınç verisi yok
         </Text>
       </View>
@@ -43,20 +43,20 @@ export function PressureWidget({
 
   return (
     <View className="bg-card dark:bg-card-dark rounded-2xl p-3 shadow-sm border border-border dark:border-border-dark">
-      <Text className="text-xs font-semibold text-text dark:text-text-dark mb-2">
+      <Text className={`text-xs font-semibold mb-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
         Hava Basıncı
       </Text>
       <View className="flex-row items-center justify-between">
         <View className="flex-1">
           <View className="flex-row items-baseline mb-1">
-            <Text className="text-2xl font-bold text-text dark:text-text-dark mr-2">
+            <Text className={`text-2xl font-bold mr-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
               {Math.round(pressure)}
             </Text>
-            <Text className="text-xs text-muted dark:text-muted-dark">
+            <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
               hPa
             </Text>
           </View>
-          <Text className="text-xs text-muted dark:text-muted-dark">
+          <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
             {pressureStatus}
           </Text>
         </View>

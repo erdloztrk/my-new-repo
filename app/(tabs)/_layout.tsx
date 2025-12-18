@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { MagnifyingGlass, MapTrifold, Bookmark, UserCircle } from "phosphor-react-native";
+import { MagnifyingGlass, MapTrifold, Bookmark, UserCircle, Folder } from "phosphor-react-native";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
 
@@ -53,6 +53,15 @@ export default function TabLayout() {
           title: t("saved"),
           tabBarIcon: ({ color, size }) => (
             <Bookmark size={size} color={color} weight="regular" />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="collections"
+        options={{
+          title: t("collections"),
+          tabBarIcon: ({ color, size }) => (
+            <Folder size={size} color={color} weight="regular" />
           ),
         }}
       />

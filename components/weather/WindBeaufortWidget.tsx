@@ -31,24 +31,24 @@ export function WindBeaufortWidget({
 
   return (
     <View className="bg-card dark:bg-card-dark rounded-2xl p-3 shadow-sm border border-border dark:border-border-dark">
-      <Text className="text-xs font-semibold text-text dark:text-text-dark mb-2">
+      <Text className={`text-xs font-semibold mb-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
         Rüzgâr Hızı
       </Text>
       <View className="flex-row items-center justify-between">
         <View className="flex-1">
           <View className="flex-row items-baseline mb-1">
-            <Text className="text-2xl font-bold text-text dark:text-text-dark mr-2">
+            <Text className={`text-2xl font-bold mr-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
               {windSpeedKmh}
             </Text>
-            <Text className="text-xs text-muted dark:text-muted-dark">
+            <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
               km/h
             </Text>
           </View>
           <View className="flex-row items-center">
-            <Text className="text-sm font-semibold text-text dark:text-text-dark mr-2">
+            <Text className={`text-sm font-semibold mr-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
               B{beaufortScale}
             </Text>
-            <Text className="text-xs text-muted dark:text-muted-dark">
+            <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
               {scaleData.label}
             </Text>
           </View>

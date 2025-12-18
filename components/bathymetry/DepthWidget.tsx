@@ -26,21 +26,25 @@ const SPECIES_LABELS: Record<SpeciesKey, string> = {
 interface DepthWidgetProps {
   onClose?: () => void;
   weather?: CurrentWeather | null;
+  selectedCoord?: { lat: number; lon: number } | null;
 }
 
-export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
+export function DepthWidget({ onClose, weather, selectedCoord: propSelectedCoord }: DepthWidgetProps) {
   const { colorScheme } = useTheme();
   const { t } = useI18n();
   const isDark = colorScheme === "dark";
   
   const {
-    selectedCoord,
+    selectedCoord: storeSelectedCoord,
     depth,
     scores,
     loading,
     error,
     queryScore,
   } = useBathymetryStore();
+
+  // Use prop if provided, otherwise use store
+  const selectedCoord = propSelectedCoord ?? storeSelectedCoord;
 
   // Track which coord+weather combination we've fetched scores for
   const fetchedKeyRef = useRef<string | null>(null);
@@ -76,9 +80,8 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
     }
   }, [selectedCoord?.lat, selectedCoord?.lon, depth?.depth_m, loading, queryScore, weather?.wind_speed]);
 
-  if (!selectedCoord) {
-    return null;
-  }
+  // Show widget even if selectedCoord is null (will show loading state)
+  // This ensures widget opens immediately when user taps on map
 
   const getScoreColor = (score: number | null): string => {
     if (score === null) return isDark ? "#94A3B8" : "#64748B";
@@ -164,14 +167,14 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
       >
-        {loading && !depth && (
+        {(!selectedCoord || (loading && !depth)) && (
           <View className="items-center justify-center py-8">
             <ActivityIndicator size="small" color="#3B82F6" />
             <Text 
               className="text-xs font-medium mt-2"
               style={{ color: isDark ? "#94A3B8" : "#64748B" }}
             >
-              Yükleniyor...
+              {!selectedCoord ? "Konum seçiliyor..." : "Yükleniyor..."}
             </Text>
           </View>
         )}
@@ -202,7 +205,7 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
           </View>
         )}
 
-        {depth && (
+        {selectedCoord && depth && (
           <View
             style={{
               borderRadius: 12,
@@ -465,99 +468,12 @@ export function DepthWidget({ onClose, weather }: DepthWidgetProps) {
                   >
                     <View
                       style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: isDark ? "#60A5FA" : "#3B82F6",
-                  }}
-                />
-              </View>
-            </View>
-
-            {/* Species Rows */}
-            {(["chipura", "levrek", "sargoz", "karagoz", "mirmir"] as SpeciesKey[]).map((species, index) => {
-              const score = scores[species];
-              const scoreValue = score?.score_0_100 ?? null;
-              const scoreColor = getScoreColor(scoreValue);
-              const isLast = index === 4;
-              
-              return (
-                <View
-                  key={species}
-                  style={{
-                    flexDirection: "row",
-                    paddingVertical: 8,
-                    paddingHorizontal: 10,
-                    borderBottomWidth: isLast ? 0 : 1,
-                    borderBottomColor: isDark ? "#1E293B" : "#E2E8F0",
-                    alignItems: "center",
-                  }}
-                >
-                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
-                    <Fish size={12} color={scoreColor} weight="fill" />
-                    <Text 
-                      style={{ 
-                        fontSize: 11, 
-                        fontWeight: "600", 
-                        color: isDark ? "#F8FAFC" : "#0F172A",
-                        marginLeft: 6,
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: getZoneColor(scoreData.zone_label || "unknown"),
                       }}
-                    >
-                      {SPECIES_LABELS[species]}
-                    </Text>
-                  </View>
-                  <Text 
-                    style={{ 
-                      width: 55, 
-                      fontSize: 11, 
-                      color: isDark ? "#94A3B8" : "#64748B",
-                      textAlign: "right",
-                    }}
-                  >
-                    {score ? `${Math.abs(score.depth_m || depth.depth_m).toFixed(1)}m` : "-"}
-                  </Text>
-                  {score ? (
-                    <Text 
-                      style={{ 
-                        width: 45, 
-                        fontSize: 11, 
-                        fontWeight: "700", 
-                        color: scoreColor,
-                        textAlign: "right",
-                      }}
-                    >
-                      {score.score_0_100.toFixed(0)}
-                    </Text>
-                  ) : (
-                    <View style={{ width: 45, alignItems: "flex-end" }}>
-                      <ActivityIndicator size="small" color="#3B82F6" />
-                    </View>
-                  )}
-                  <View 
-                    style={{ 
-                      width: 50, 
-                      alignItems: "center",
-                    }}
-                  >
-                    {score ? (
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: getZoneColor(score.zone_label),
-                        }}
-                      />
-                    ) : (
-                      <View
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: isDark ? "#334155" : "#CBD5E1",
-                        }}
-                      />
-                    )}
+                    />
                   </View>
                 </View>
               );

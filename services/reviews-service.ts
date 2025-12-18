@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { Review, ReviewInput } from "@/types/review";
-import { updatePlaceRating } from "./places-service";
+import { logError } from "@/lib/logger";
 
 // Convert Firestore timestamp to Date
 const convertTimestamp = (timestamp: any): Date => {
@@ -48,7 +48,7 @@ export async function getReviewsByPlaceId(placeId: string): Promise<Review[]> {
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(docToReview);
   } catch (error) {
-    console.error("Error getting reviews by place ID:", error);
+    logError("[ReviewsService] Error getting reviews by place ID:", error);
     throw error;
   }
 }
@@ -73,7 +73,7 @@ export function subscribeToReviews(
       callback(reviews);
     },
     (error) => {
-      console.error("Error subscribing to reviews:", error);
+      logError("[ReviewsService] Error subscribing to reviews:", error);
       onError?.(error);
       callback([]);
     }
@@ -81,6 +81,7 @@ export function subscribeToReviews(
 }
 
 // Add review
+// Note: Rating aggregation is handled server-side by Cloud Function
 export async function addReview(reviewData: ReviewInput): Promise<string> {
   try {
     const reviewsRef = collection(db, "reviews");
@@ -89,33 +90,12 @@ export async function addReview(reviewData: ReviewInput): Promise<string> {
       createdAt: Timestamp.now(),
     });
 
-    // Update place rating
-    await calculatePlaceRating(reviewData.placeId);
+    // Rating aggregation is handled automatically by Cloud Function
+    // No need to calculate rating client-side
 
     return docRef.id;
   } catch (error) {
-    console.error("Error adding review:", error);
-    throw error;
-  }
-}
-
-// Calculate and update place rating
-export async function calculatePlaceRating(placeId: string): Promise<void> {
-  try {
-    const reviews = await getReviewsByPlaceId(placeId);
-    
-    if (reviews.length === 0) {
-      await updatePlaceRating(placeId, 0, 0);
-      return;
-    }
-
-    const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
-    const averageRating = totalRating / reviews.length;
-    const roundedRating = Math.round(averageRating * 10) / 10; // Round to 1 decimal
-
-    await updatePlaceRating(placeId, roundedRating, reviews.length);
-  } catch (error) {
-    console.error("Error calculating place rating:", error);
+    logError("[ReviewsService] Error adding review:", error);
     throw error;
   }
 }

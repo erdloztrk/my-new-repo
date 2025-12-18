@@ -2,8 +2,17 @@ fastapi==0.115.0
 uvicorn[standard]==0.32.0
 pydantic==2.9.2
 rasterio==1.3.10
-numpy==2.1.0
+numpy>=2.0.0,<3.0.0
 python-multipart==0.0.9
 netCDF4==1.7.1
 requests==2.31.0
+slowapi==0.1.9
+python-dotenv>=1.0.0
+# Copernicus Marine Toolbox and geospatial processing
+copernicusmarine>=1.12.0
+xarray>=2024.1.0
+rioxarray>=0.18.0
+scikit-image>=0.22.0  # For contour extraction
+affine>=2.4.0
+pyproj>=3.6.0
 

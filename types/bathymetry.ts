@@ -11,12 +11,14 @@ export interface DepthDataPoint {
 }
 
 export interface DepthResponse {
-  depth_m: number; // Primary depth (EMODnet > Copernicus > GEBCO priority)
+  depth_m: number; // Primary depth
   source: string; // Primary source
   resolution_m: number; // Primary resolution
+  source_used?: string; // "emodnet", "gebco"
+  confidence?: number; // 0..1
   emodnet?: DepthDataPoint; // EMODnet data if available
   gebco?: DepthDataPoint; // GEBCO data if available
-  copernicus?: DepthDataPoint; // Copernicus data if available
+  not_for_navigation: boolean; // Safety warning
 }
 
 export interface ScoreReason {
@@ -43,14 +45,19 @@ export interface ScoreResponse {
   time_score?: number;
 }
 
-export interface ContourLine {
-  interval: number;
-  coordinates: Array<[number, number]>; // [lat, lon]
+
+export interface BathymetrySourceInfo {
+  name: string;
+  available: boolean;
+  resolution_m?: number;
+  bbox?: number[]; // [min_lon, min_lat, max_lon, max_lat]
 }
 
-export interface ContourResponse {
-  contours: ContourLine[];
+export interface SourcesResponse {
+  sources: Record<string, BathymetrySourceInfo>;
 }
+
+export type DepthMode = "auto" | "emodnet" | "gebco";
 
 export interface BathymetryCacheEntry {
   lat: number;

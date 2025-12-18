@@ -9,6 +9,7 @@ import { useI18n } from "@/stores/i18n-store";
 import { getPlaceById } from "@/services/places-service";
 import * as Location from "expo-location";
 import { Place } from "@/types/place";
+import { logError } from "@/lib/logger";
 
 // Dark mode map style for Google Maps (Android)
 const darkMapStyle: any[] = [
@@ -78,7 +79,7 @@ export default function RouteScreen() {
       if (!placeData.coordinates || 
           placeData.coordinates.latitude === 0 || 
           placeData.coordinates.longitude === 0) {
-        console.error("Place has invalid coordinates");
+        logError("[RouteScreen] Place has invalid coordinates");
         setError("Invalid place location");
         setLoading(false);
         return;
@@ -86,7 +87,7 @@ export default function RouteScreen() {
       
       setPlace(placeData);
     } catch (error) {
-      console.error("Error loading place:", error);
+      logError("[RouteScreen] Error loading place:", error);
       setError("Failed to load place");
       setLoading(false);
     }
@@ -152,7 +153,7 @@ export default function RouteScreen() {
         }
       );
     } catch (error) {
-      console.error("Error tracking location:", error);
+      logError("[RouteScreen] Error tracking location:", error);
       setError(t("location_error"));
       setLoading(false);
     }
@@ -205,7 +206,13 @@ export default function RouteScreen() {
     return (
       <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
         <View className={`px-6 pt-4 pb-4 border-b ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
-          <Pressable onPress={() => router.back()}>
+          <Pressable onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/map");
+            }
+          }}>
             <ArrowLeft size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
           </Pressable>
         </View>
@@ -224,7 +231,13 @@ export default function RouteScreen() {
       <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
         <View className={`px-6 pt-4 pb-4 border-b ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
           <View className="flex-row items-center">
-            <Pressable onPress={() => router.back()} className="mr-3">
+            <Pressable onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/map");
+              }
+            }} className="mr-3">
               <ArrowLeft size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
             </Pressable>
             <Text className={`text-xl font-bold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
@@ -241,7 +254,13 @@ export default function RouteScreen() {
               {error === t("location_permission_required") ? t("check_permissions") : t("location_error")}
             </Text>
             <Pressable
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/(tabs)/map");
+                }
+              }}
               className={`px-6 py-3 rounded-xl ${isDark ? "bg-primary" : "bg-primary"}`}
             >
               <Text className="text-white font-semibold">{t("ok")}</Text>

@@ -1,6 +1,6 @@
 /**
  * Detailed Bathymetry Analysis Page
- * Shows comprehensive depth analysis, fish species analysis with weather data
+ * Shows comprehensive depth analysis and shore fishing suitability evaluation with weather data
  */
 
 import React, { useEffect, useState } from "react";
@@ -11,19 +11,155 @@ import { useI18n } from "@/stores/i18n-store";
 import { useBathymetryStore } from "@/stores/bathymetry-store";
 import { getWeather } from "@/components/weather/weatherAPI";
 import type { CurrentWeather } from "@/components/weather/weatherTypes";
-import { ArrowLeft, Fish, Waves, Thermometer, Wind, Gauge, Moon } from "phosphor-react-native";
-import { TablerIcon } from "@/components/icons/TablerIcon";
+import { ArrowLeft, Fish, Waves, Clock } from "phosphor-react-native";
 import { logError } from "@/lib/logger";
+import { getSeaRegion } from "@/components/weather/fishingUtils";
+import type { SeaRegion } from "@/components/weather/fishingUtils";
+import type { ShoreType } from "@/components/weather/fishProfiles";
+import {
+  computeOverallScore,
+  explainScore,
+  type WeatherSnapshot,
+  type FactorExplanation,
+} from "@/utils/fishing/fishingScore";
+import { getSuitableSpecies, CANAKKALE_SPECIES } from "@/utils/fishing/canakkaleSpecies";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-const SPECIES_LABELS: Record<string, string> = {
-  chipura: "Çipura",
-  levrek: "Levrek",
-  sargoz: "Sargoz",
-  karagoz: "Karagöz",
-  mirmir: "Mırmır",
-};
+// Helper function to format time
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("tr-TR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+// Helper function to generate concise scientific explanation with Çanakkale species
+function generateDetailedExplanation(
+  overallScore: { score: number; label: string; color: string; summary: string },
+  factors: FactorExplanation[],
+  weather: CurrentWeather,
+  seaRegion: SeaRegion | null,
+  depth: number | null // Noktaya özel derinlik (mutlak değer)
+): string {
+  const parts: string[] = [];
+  
+  // Check if Çanakkale region (Marmara)
+  const isCanakkale = seaRegion === "Marmara";
+  
+  // Overall assessment - concise
+  if (overallScore.score >= 8) {
+    parts.push("Optimal koşullar: Tüm parametreler ideal aralıkta. Balık aktivitesi maksimum seviyede.");
+  } else if (overallScore.score >= 6) {
+    parts.push("İyi koşullar: Çoğu faktör uygun. Normal aktivite beklenir.");
+  } else if (overallScore.score >= 4) {
+    parts.push("Orta koşullar: Bazı faktörler optimal değil. Aktivite düşük olabilir.");
+  } else {
+    parts.push("Uygun değil: Güvenlik ve verimlilik açısından beklemek önerilir.");
+  }
+  
+  // Key factors - concise
+  const importantFactors = factors
+    .filter((f) => Math.abs(f.impact) > 0.5)
+    .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+    .slice(0, 3);
+  
+  if (importantFactors.length > 0) {
+    parts.push("\n\nFaktörler:");
+    
+    importantFactors.forEach((factor) => {
+      if (factor.key === "wave") {
+        const waveValue = parseFloat(factor.value.replace("m", "").trim());
+        if (waveValue <= 0.8) {
+          parts.push(`• Dalga (${factor.value}): Optimal. Güvenli ve verimli.`);
+        } else if (waveValue <= 1.2) {
+          parts.push(`• Dalga (${factor.value}): Kabul edilebilir. Dikkatli olun.`);
+        } else if (waveValue <= 2.0) {
+          parts.push(`• Dalga (${factor.value}): Yüksek. Aktivite azalır, güvenlik riski.`);
+        } else {
+          parts.push(`• Dalga (${factor.value}): Tehlikeli. Avlanma önerilmez.`);
+        }
+      } else if (factor.key === "wind") {
+        const windValue = parseFloat(factor.value.replace("km/h", "").trim());
+        if (windValue <= 25) {
+          parts.push(`• Rüzgar (${factor.value}): Optimal. Aktiviteyi destekler.`);
+        } else if (windValue <= 40) {
+          parts.push(`• Rüzgar (${factor.value}): Orta. Davranışları etkileyebilir.`);
+        } else if (windValue <= 60) {
+          parts.push(`• Rüzgar (${factor.value}): Güçlü. Aktivite azalır.`);
+        } else {
+          parts.push(`• Rüzgar (${factor.value}): Çok güçlü. Tehlikeli.`);
+        }
+      } else if (factor.key === "sst") {
+        const sstValue = parseFloat(factor.value.replace("°C", "").trim());
+        if (sstValue >= 14 && sstValue <= 22) {
+          parts.push(`• Deniz Sıcaklığı (${factor.value}): Optimal. Maksimum aktivite.`);
+        } else if (sstValue >= 10 && sstValue <= 26) {
+          parts.push(`• Deniz Sıcaklığı (${factor.value}): Kabul edilebilir.`);
+        } else if (sstValue < 10) {
+          parts.push(`• Deniz Sıcaklığı (${factor.value}): Soğuk. Aktivite düşük.`);
+        } else {
+          parts.push(`• Deniz Sıcaklığı (${factor.value}): Sıcak. Stres artar.`);
+        }
+      } else if (factor.key === "pressure") {
+        const pressureValue = parseFloat(factor.value.replace("hPa", "").trim());
+        if (pressureValue >= 1010 && pressureValue <= 1020) {
+          parts.push(`• Basınç (${factor.value}): Optimal. Aktivite maksimum.`);
+        } else if (pressureValue >= 1000 && pressureValue <= 1030) {
+          parts.push(`• Basınç (${factor.value}): Normal.`);
+        } else if (pressureValue < 1000) {
+          parts.push(`• Basınç (${factor.value}): Düşük. Aktivite azalır.`);
+        } else {
+          parts.push(`• Basınç (${factor.value}): Yüksek. Genelde uygun.`);
+        }
+      }
+    });
+  }
+  
+  // Çanakkale species recommendations - noktaya özel (derinlik dahil)
+  if (isCanakkale && weather && depth !== null) {
+    const currentMonth = new Date().getMonth() + 1;
+    const currentHour = new Date().getHours();
+    const suitableSpecies = getSuitableSpecies(
+      weather.seaTemperature ?? null,
+      weather.waveHeight ?? null,
+      Math.round(weather.wind_speed * 3.6),
+      weather.pressure ?? null,
+      depth, // Noktaya özel derinlik
+      currentMonth,
+      currentHour
+    );
+    
+    if (suitableSpecies.length > 0) {
+      parts.push("\n\nUygun Türler (Çanakkale):");
+      suitableSpecies.slice(0, 3).forEach((species) => {
+        parts.push(`\n• ${species.trName} (${species.latinName})`);
+        parts.push(`  ${species.description}`);
+        // Derinlik bilgisini ekle
+        parts.push(`  Derinlik: ${species.conditions.depth.min}-${species.conditions.depth.max}m (Mevcut: ${depth.toFixed(1)}m)`);
+        if (species.tips.length > 0) {
+          parts.push(`  İpucu: ${species.tips[0]}`);
+        }
+      });
+    }
+  }
+  
+  // Recommendations - concise
+  parts.push("\n\nÖneriler:");
+  
+  if (overallScore.score >= 6) {
+    parts.push("• Şafak ve alacakaranlık saatleri en verimli.");
+    parts.push("• Gelgit hareketlerini takip edin.");
+  } else if (overallScore.score >= 4) {
+    parts.push("• Derin veya korunaklı bölgeleri tercih edin.");
+    parts.push("• Sabırlı ve uzun süreli strateji uygulayın.");
+  } else {
+    parts.push("• Koşulların iyileşmesini bekleyin.");
+  }
+  
+  return parts.join("");
+}
 
 export default function BathymetryDetailPage() {
   const { colorScheme } = useTheme();
@@ -39,12 +175,13 @@ export default function BathymetryDetailPage() {
   
   const {
     depth,
-    scores,
     loading,
     error,
     queryDepth,
-    queryScore,
   } = useBathymetryStore();
+  
+  // Extract depth value for species evaluation
+  const depthValue = depth ? Math.abs(depth.depth_m) : null;
 
   // Set selected coord and fetch data
   useEffect(() => {
@@ -74,37 +211,49 @@ export default function BathymetryDetailPage() {
     }
   }, [lat, lon]);
 
-  // Fetch scores when depth and weather are available
+  // Compute sea region and shore type for fishing evaluation
+  const seaRegion: SeaRegion | null = lat !== null && lon !== null ? getSeaRegion(lat, lon) : null;
+  const shoreType: ShoreType = "unknown"; // Default, can be enhanced with location data
+  
+  // Create weather snapshot for fishing evaluation
+  const weatherSnapshot: WeatherSnapshot | null = weather
+    ? {
+        airTempC: weather.temp,
+        seaTempC: weather.seaTemperature ?? undefined,
+        windKmh: Math.round(weather.wind_speed * 3.6),
+        waveM: weather.waveHeight ?? undefined,
+        pressureHpa: weather.pressure ?? undefined,
+        cloudiness: undefined,
+      }
+    : null;
+  
+  // Compute overall fishing score
+  const overallFishingScore =
+    weatherSnapshot && lat !== null && lon !== null && weather
+      ? computeOverallScore(weatherSnapshot, seaRegion, shoreType, weather, { latitude: lat, longitude: lon })
+      : null;
+  
+  // Get factor explanations
+  const fishingFactors =
+    weatherSnapshot && lat !== null && lon !== null && overallFishingScore && weather
+      ? explainScore(weatherSnapshot, "", seaRegion, shoreType, weather, { latitude: lat, longitude: lon })
+      : [];
+  
+  // Generate detailed explanation - noktaya özel (derinlik dahil)
+  const detailedExplanation =
+    overallFishingScore && weather
+      ? generateDetailedExplanation(overallFishingScore, fishingFactors, weather, seaRegion, depthValue)
+      : "";
+  
+  // Current time
+  const [currentTime, setCurrentTime] = useState(new Date());
+  
   useEffect(() => {
-    if (lat !== null && lon !== null && depth && weather && !loading) {
-      const weatherData = {
-        temp: weather.temp,
-        windSpeed: weather.wind_speed,
-        windDeg: weather.wind_deg,
-        pressure: weather.pressure,
-        uvi: weather.uvi,
-        seaTemperature: weather.seaTemperature,
-        waveHeight: weather.waveHeight,
-        timeOfDayHour: new Date().getHours(),
-        moonPhase: "new_moon", // TODO: Calculate actual moon phase
-      };
-      
-      const currentTime = Math.floor(Date.now() / 1000);
-      
-      // Fetch scores for all species
-      const species: Array<"chipura" | "levrek" | "sargoz" | "karagoz" | "mirmir"> = [
-        "chipura",
-        "levrek",
-        "sargoz",
-        "karagoz",
-        "mirmir",
-      ];
-      
-      species.forEach((spec) => {
-        queryScore(lat, lon, spec, weatherData);
-      });
-    }
-  }, [lat, lon, depth, weather, loading]);
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   if (lat === null || lon === null) {
     return (
@@ -118,35 +267,6 @@ export default function BathymetryDetailPage() {
     );
   }
 
-  const getZoneColor = (zoneLabel: string) => {
-    switch (zoneLabel) {
-      case "optimal":
-        return "#10B981";
-      case "shallow":
-        return "#3B82F6";
-      case "deep":
-        return "#F59E0B";
-      case "land":
-        return "#EF4444";
-      default:
-        return isDark ? "#94A3B8" : "#64748B";
-    }
-  };
-
-  const getZoneLabel = (zoneLabel: string) => {
-    switch (zoneLabel) {
-      case "optimal":
-        return "İDEAL";
-      case "shallow":
-        return "İYİ";
-      case "deep":
-        return "ORTA";
-      case "land":
-        return "KÖTÜ";
-      default:
-        return zoneLabel.toUpperCase();
-    }
-  };
 
   return (
     <View className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
@@ -164,7 +284,13 @@ export default function BathymetryDetailPage() {
         }}
       >
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/map");
+            }
+          }}
           style={{
             width: 40,
             height: 40,
@@ -259,7 +385,36 @@ export default function BathymetryDetailPage() {
                 Koordinat: {lat.toFixed(6)}, {lon.toFixed(6)}
               </Text>
               
-              {/* Both Data Sources */}
+              {/* Source Info */}
+              {depth.source_used && (
+                <View style={{ 
+                  marginBottom: 12, 
+                  padding: 10, 
+                  backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: isDark ? "#334155" : "#E2E8F0",
+                }}>
+                  <Text style={{ 
+                    fontSize: 12, 
+                    fontWeight: "600",
+                    color: isDark ? "#94A3B8" : "#64748B",
+                  }}>
+                    {`📊 Kaynak: ${depth.source}`}
+                  </Text>
+                  {depth.confidence !== undefined && (
+                    <Text style={{ 
+                      fontSize: 11, 
+                      color: isDark ? "#64748B" : "#94A3B8",
+                      marginTop: 4,
+                    }}>
+                      Güven: {(depth.confidence * 100).toFixed(0)}%
+                    </Text>
+                  )}
+                </View>
+              )}
+              
+              {/* All Data Sources */}
               <View style={{ marginTop: 12, gap: 8 }}>
                 {/* EMODnet Data */}
                 {depth.emodnet ? (
@@ -339,84 +494,6 @@ export default function BathymetryDetailPage() {
                   </View>
                 )}
                 
-                {/* Copernicus Data */}
-                {depth.copernicus ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: 12,
-                      backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: "#8B5CF6",
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Text style={{ fontSize: 16, marginRight: 8 }}>🛰️</Text>
-                      <View>
-                        <Text style={{ 
-                          color: "#8B5CF6", 
-                          fontSize: 14, 
-                          fontWeight: "700",
-                          marginBottom: 2
-                        }}>
-                          Copernicus
-                        </Text>
-                        <Text style={{ color: isDark ? "#64748B" : "#94A3B8", fontSize: 11 }}>
-                          ~{depth.copernicus.resolution_m}m çözünürlük
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={{ 
-                      color: "#8B5CF6", 
-                      fontSize: 18, 
-                      fontWeight: "700" 
-                    }}>
-                      {Math.abs(depth.copernicus.depth_m).toFixed(1)} m
-                    </Text>
-                  </View>
-                ) : (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: 12,
-                      backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: isDark ? "#334155" : "#E2E8F0",
-                      opacity: 0.5,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Text style={{ fontSize: 16, marginRight: 8 }}>🛰️</Text>
-                      <View>
-                        <Text style={{ 
-                          color: isDark ? "#64748B" : "#94A3B8", 
-                          fontSize: 14, 
-                          fontWeight: "700",
-                          marginBottom: 2
-                        }}>
-                          Copernicus
-                        </Text>
-                        <Text style={{ color: isDark ? "#475569" : "#CBD5E1", fontSize: 11 }}>
-                          Veri yüklenmedi
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={{ 
-                      color: isDark ? "#64748B" : "#94A3B8", 
-                      fontSize: 14, 
-                      fontStyle: "italic"
-                    }}>
-                      -
-                    </Text>
-                  </View>
-                )}
-                
                 {/* GEBCO Data */}
                 {depth.gebco && (
                   <View
@@ -459,8 +536,9 @@ export default function BathymetryDetailPage() {
               </View>
             </View>
 
-            {/* Weather Data Card */}
-            {weather && (
+
+            {/* Kıyı Balıkçılığı Uygunluk Değerlendirmesi */}
+            {weather && overallFishingScore && (
               <View
                 style={{
                   backgroundColor: isDark ? "#1E293B" : "#F8FAFC",
@@ -471,279 +549,132 @@ export default function BathymetryDetailPage() {
                   borderColor: isDark ? "#334155" : "#E2E8F0",
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 18,
-                    fontWeight: "700",
-                    marginBottom: 16,
-                    color: isDark ? "#F8FAFC" : "#0F172A",
-                  }}
-                >
-                  Hava Durumu
-                </Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-                  {weather.temp !== undefined && (
-                    <View style={{ flex: 1, minWidth: "45%" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                        <Thermometer size={16} color="#EF4444" weight="fill" />
-                        <Text
-                          style={{
-                            marginLeft: 6,
-                            fontSize: 12,
-                            fontWeight: "600",
-                            color: isDark ? "#94A3B8" : "#64748B",
-                          }}
-                        >
-                          Sıcaklık
-                        </Text>
-                      </View>
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          fontWeight: "700",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      >
-                        {Math.round(weather.temp)}°C
-                      </Text>
-                    </View>
-                  )}
-                  {weather.wind_speed !== undefined && (
-                    <View style={{ flex: 1, minWidth: "45%" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                        <Wind size={16} color="#3B82F6" weight="fill" />
-                        <Text
-                          style={{
-                            marginLeft: 6,
-                            fontSize: 12,
-                            fontWeight: "600",
-                            color: isDark ? "#94A3B8" : "#64748B",
-                          }}
-                        >
-                          Rüzgar
-                        </Text>
-                      </View>
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          fontWeight: "700",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      >
-                        {Math.round(weather.wind_speed * 3.6)} km/h
-                      </Text>
-                    </View>
-                  )}
-                  {weather.pressure !== undefined && (
-                    <View style={{ flex: 1, minWidth: "45%" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                        <Gauge size={16} color="#10B981" weight="fill" />
-                        <Text
-                          style={{
-                            marginLeft: 6,
-                            fontSize: 12,
-                            fontWeight: "600",
-                            color: isDark ? "#94A3B8" : "#64748B",
-                          }}
-                        >
-                          Basınç
-                        </Text>
-                      </View>
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          fontWeight: "700",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      >
-                        {weather.pressure} hPa
-                      </Text>
-                    </View>
-                  )}
-                  {weather.seaTemperature !== undefined && (
-                    <View style={{ flex: 1, minWidth: "45%" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                        <Waves size={16} color="#06B6D4" weight="fill" />
-                        <Text
-                          style={{
-                            marginLeft: 6,
-                            fontSize: 12,
-                            fontWeight: "600",
-                            color: isDark ? "#94A3B8" : "#64748B",
-                          }}
-                        >
-                          Deniz Sıcaklığı
-                        </Text>
-                      </View>
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          fontWeight: "700",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      >
-                        {weather.seaTemperature}°C
-                      </Text>
-                    </View>
-                  )}
-                  {weather.waveHeight !== undefined && (
-                    <View style={{ flex: 1, minWidth: "45%" }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
-                        <Waves size={16} color="#8B5CF6" weight="fill" />
-                        <Text
-                          style={{
-                            marginLeft: 6,
-                            fontSize: 12,
-                            fontWeight: "600",
-                            color: isDark ? "#94A3B8" : "#64748B",
-                          }}
-                        >
-                          Dalga Yüksekliği
-                        </Text>
-                      </View>
-                      <Text
-                        style={{
-                          fontSize: 20,
-                          fontWeight: "700",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      >
-                        {weather.waveHeight} m
-                      </Text>
-                    </View>
-                  )}
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+                  <Fish size={24} color="#10B981" weight="fill" />
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: "700",
+                      marginLeft: 12,
+                      color: isDark ? "#F8FAFC" : "#0F172A",
+                    }}
+                  >
+                    Kıyı Balıkçılığı Uygunluk Değerlendirmesi
+                  </Text>
                 </View>
-              </View>
-            )}
 
-            {/* Species Scores */}
-            <View
-              style={{
-                backgroundColor: isDark ? "#1E293B" : "#F8FAFC",
-                borderRadius: 16,
-                padding: 20,
-                marginBottom: 16,
-                borderWidth: 1,
-                borderColor: isDark ? "#334155" : "#E2E8F0",
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
-                <Fish size={24} color="#10B981" weight="fill" />
-                <Text
+                {/* Current Time */}
+                <View
                   style={{
-                    fontSize: 18,
-                    fontWeight: "700",
-                    marginLeft: 12,
-                    color: isDark ? "#F8FAFC" : "#0F172A",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 16,
+                    padding: 12,
+                    backgroundColor: isDark ? "#0F172A" : "#F1F5F9",
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: isDark ? "#1E293B" : "#E2E8F0",
                   }}
                 >
-                  Balık Türü Analizi
-                </Text>
-              </View>
+                  <Clock size={20} color={isDark ? "#94A3B8" : "#64748B"} weight="regular" />
+                  <Text
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 16,
+                      fontWeight: "600",
+                      color: isDark ? "#F8FAFC" : "#0F172A",
+                    }}
+                  >
+                    Anlık Saat: {formatTime(currentTime)}
+                  </Text>
+                </View>
 
-              {Object.entries(scores).map(([species, scoreData]) => {
-                if (!scoreData) return null;
-                
-                const zoneColor = getZoneColor(scoreData.zone_label);
-                const zoneDisplayLabel = getZoneLabel(scoreData.zone_label);
-                
-                return (
+                {/* Overall Score */}
+                <View
+                  style={{
+                    backgroundColor: isDark ? "#0F172A" : "#FFFFFF",
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 16,
+                    borderWidth: 2,
+                    borderColor: overallFishingScore.color,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "baseline", marginBottom: 8 }}>
+                    <Text
+                      style={{
+                        fontSize: 48,
+                        fontWeight: "900",
+                        color: overallFishingScore.color,
+                      }}
+                    >
+                      {overallFishingScore.score.toFixed(1)}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 24,
+                        fontWeight: "700",
+                        marginLeft: 8,
+                        color: isDark ? "#94A3B8" : "#64748B",
+                      }}
+                    >
+                      /10
+                    </Text>
+                  </View>
+                  <Text
+                    style={{
+                      fontSize: 20,
+                      fontWeight: "700",
+                      marginBottom: 4,
+                      color: overallFishingScore.color,
+                    }}
+                  >
+                    {overallFishingScore.label}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: isDark ? "#94A3B8" : "#64748B",
+                    }}
+                  >
+                    {overallFishingScore.summary}
+                  </Text>
+                </View>
+
+                {/* Detailed Explanation */}
+                {detailedExplanation && (
                   <View
-                    key={species}
                     style={{
                       backgroundColor: isDark ? "#0F172A" : "#FFFFFF",
                       borderRadius: 12,
                       padding: 16,
-                      marginBottom: 12,
                       borderWidth: 1,
                       borderColor: isDark ? "#1E293B" : "#E2E8F0",
                     }}
                   >
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: "700",
-                          color: isDark ? "#F8FAFC" : "#0F172A",
-                        }}
-                      >
-                        {SPECIES_LABELS[species] || species}
-                      </Text>
-                      <View
-                        style={{
-                          backgroundColor: `${zoneColor}20`,
-                          paddingHorizontal: 12,
-                          paddingVertical: 4,
-                          borderRadius: 8,
-                          borderWidth: 1,
-                          borderColor: zoneColor,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 12,
-                            fontWeight: "700",
-                            color: zoneColor,
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          {zoneDisplayLabel}
-                        </Text>
-                      </View>
-                    </View>
-                    
-                    <View style={{ marginBottom: 8 }}>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-                        <Text style={{ fontSize: 14, color: isDark ? "#94A3B8" : "#64748B" }}>
-                          Skor
-                        </Text>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            fontWeight: "700",
-                            color: isDark ? "#F8FAFC" : "#0F172A",
-                          }}
-                        >
-                          {scoreData.score_0_100}/100
-                        </Text>
-                      </View>
-                      <View
-                        style={{
-                          height: 8,
-                          backgroundColor: isDark ? "#1E293B" : "#E2E8F0",
-                          borderRadius: 4,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <View
-                          style={{
-                            height: "100%",
-                            width: `${scoreData.score_0_100}%`,
-                            backgroundColor: zoneColor,
-                          }}
-                        />
-                      </View>
-                    </View>
-
-                    {scoreData.reasons && scoreData.reasons.length > 0 && (
-                      <View style={{ marginTop: 8 }}>
-                        {scoreData.reasons.slice(0, 2).map((reason, idx) => (
-                          <Text key={idx} style={{ fontSize: 12, color: isDark ? "#94A3B8" : "#64748B", marginTop: 4 }}>
-                            • {reason.message}
-                          </Text>
-                        ))}
-                      </View>
-                    )}
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: "700",
+                        marginBottom: 12,
+                        color: isDark ? "#F8FAFC" : "#0F172A",
+                      }}
+                    >
+                      Detaylı Değerlendirme
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        lineHeight: 22,
+                        color: isDark ? "#94A3B8" : "#64748B",
+                      }}
+                    >
+                      {detailedExplanation}
+                    </Text>
                   </View>
-                );
-              })}
-
-              {Object.keys(scores).length === 0 && !loading && (
-                <Text style={{ color: isDark ? "#94A3B8" : "#64748B", textAlign: "center", paddingVertical: 20 }}>
-                  Tür skorları yükleniyor...
-                </Text>
-              )}
-            </View>
+                )}
+              </View>
+            )}
           </>
         )}
       </ScrollView>

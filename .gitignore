@@ -3,9 +3,12 @@
 # Bathymetry data
 data/raw/
 data/processed/
+data/bathymetry/
 *.tif
 *.tiff
 *.cog
+*.nc
+*.nc4
 
 # Python
 __pycache__/
@@ -27,5 +30,24 @@ expo-env.d.ts
 .expo/
 .expo-shared/
 
+# Environment files (NEVER commit these!)
+.env
+.env.local
+.env.*.local
+*.env
+backend/.env
+backend/.env.local
+backend/.env.*.local
+
+# Secrets and credentials
+secrets/
+credentials/
+*.pem
+*.key
+*.crt
+*.p12
+*.keystore
+!debug.keystore
+
 # Node modules (in case)
-node_modules/
+node_modules/.env

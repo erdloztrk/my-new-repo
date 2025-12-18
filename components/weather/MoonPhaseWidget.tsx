@@ -41,15 +41,15 @@ export function MoonPhaseWidget({
 
   return (
     <View className="bg-card dark:bg-card-dark rounded-2xl p-3 shadow-sm border border-border dark:border-border-dark">
-      <Text className="text-xs font-semibold text-text dark:text-text-dark mb-2">
+      <Text className={`text-xs font-semibold mb-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
         Ay Fazı
       </Text>
       <View className="flex-row items-center justify-between">
         <View className="flex-1">
-          <Text className="text-sm font-semibold text-text dark:text-text-dark mb-0.5">
+          <Text className={`text-sm font-semibold mb-0.5 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
             {label}
           </Text>
-          <Text className="text-xs text-muted dark:text-muted-dark">
+          <Text className={`text-xs ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
             {date.toLocaleDateString("tr-TR", {
               day: "numeric",
               month: "short",

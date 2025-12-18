@@ -22,7 +22,7 @@ export function AQIWidget({ aqi, loading = false }: AQIWidgetProps) {
   if (!aqi || aqi < 1 || aqi > 5) {
     return (
       <View className="bg-card dark:bg-card-dark rounded-2xl p-3 shadow-sm border border-border dark:border-border-dark">
-        <Text className="text-xs text-muted dark:text-muted-dark text-center">
+        <Text className={`text-xs text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
           Veri alınamadı
         </Text>
       </View>
@@ -44,7 +44,7 @@ export function AQIWidget({ aqi, loading = false }: AQIWidgetProps) {
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-1">
-          <Text className="text-xs text-muted dark:text-muted-dark mb-0.5">
+          <Text className={`text-xs mb-0.5 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
             Hava Kalitesi
           </Text>
           <View className="flex-row items-baseline">
@@ -61,7 +61,7 @@ export function AQIWidget({ aqi, loading = false }: AQIWidgetProps) {
               {aqiData.label}
             </Text>
           </View>
-          <Text className="text-xs text-muted dark:text-muted-dark mt-0.5">
+          <Text className={`text-xs mt-0.5 ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
             {aqiData.description}
           </Text>
         </View>

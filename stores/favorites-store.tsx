@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { logError } from "@/lib/logger";
 
 interface FavoritesState {
   favorites: string[]; // Array of place IDs
@@ -22,7 +23,7 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
         set({ favorites });
       }
     } catch (error) {
-      console.error("Error loading favorites:", error);
+      logError("[FavoritesStore] Error loading favorites:", error);
     }
   },
 
@@ -38,7 +39,7 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
     try {
       await AsyncStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(newFavorites));
     } catch (error) {
-      console.error("Error saving favorite:", error);
+      logError("[FavoritesStore] Error saving favorite:", error);
       // Revert on error
       set({ favorites: currentFavorites });
     }
@@ -52,7 +53,7 @@ export const useFavorites = create<FavoritesState>((set, get) => ({
     try {
       await AsyncStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(newFavorites));
     } catch (error) {
-      console.error("Error removing favorite:", error);
+      logError("[FavoritesStore] Error removing favorite:", error);
       // Revert on error
       set({ favorites: currentFavorites });
     }

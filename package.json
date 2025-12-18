@@ -13,7 +13,8 @@
     "clean": "echo \"Clean caches manually: rm -rf .expo && expo start -c\"",
     "prebuild": "node node_modules/expo/bin/cli prebuild",
     "pod:install": "cd ios && EXPO_USE_COMMUNITY_AUTOLINKING=1 pod install && cd ..",
-    "run:ios": "npm run pod:install && EXPO_USE_COMMUNITY_AUTOLINKING=1 node node_modules/expo/bin/cli run:ios"
+    "run:ios": "npm run pod:install && EXPO_USE_COMMUNITY_AUTOLINKING=1 node node_modules/expo/bin/cli run:ios",
+    "add-places": "node node_modules/.bin/tsx scripts/add-canakkale-places.ts"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -35,7 +36,9 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-map-clustering": "^4.0.0",
     "react-native-maps": "1.20.1",
+    "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
@@ -45,11 +48,12 @@
     "@babel/core": "^7.25.2",
     "@react-native-community/cli": "^20.0.2",
     "@types/react": "~19.1.10",
+    "babel-preset-expo": "~54.0.7",
     "eslint": "^8.57.1",
     "eslint-config-expo": "^10.0.0",
-    "babel-preset-expo": "~54.0.7",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.18",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.2"
   },
   "eslintConfig": {

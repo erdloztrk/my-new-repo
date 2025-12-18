@@ -1,0 +1,31 @@
+INFO:     Will watch for changes in these directories: ['/Users/gmzgnl/Dev:lokal-mvp/backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [48918] using StatReload
+INFO:     Started server process [48922]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+✓ Loaded EMODnet COG: ../data/processed/emodnet_turkey_cog.tif
+✓ Loaded GEBCO COG: ../data/processed/gebco_turkey_cog.tif
+INFO:     192.168.1.105:51233 - "GET /health HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'src/main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [48922]
+INFO:     Started server process [49288]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+✓ Loaded EMODnet COG: ../data/processed/emodnet_turkey_cog.tif
+✓ Loaded GEBCO COG: ../data/processed/gebco_turkey_cog.tif
+INFO:     192.168.1.104:58536 - "GET /v1/depth?lat=40.361900217441054&lon=26.684730816169104 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58536 - "GET /v1/depth?lat=40.361900217441054&lon=26.684730816169104 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58537 - "GET /v1/depth?lat=40.361900217441054&lon=26.684730816169104 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58540 - "GET /v1/depth?lat=40.36781135170482&lon=26.68462381415824 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58540 - "GET /v1/depth?lat=40.36781135170482&lon=26.68462381415824 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58541 - "GET /v1/depth?lat=40.36781135170482&lon=26.68462381415824 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58542 - "GET /v1/depth?lat=40.36255033809351&lon=26.681851225409304 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58542 - "GET /v1/depth?lat=40.36255033809351&lon=26.681851225409304 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58543 - "GET /v1/depth?lat=40.36255033809351&lon=26.681851225409304 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58607 - "GET /v1/depth?lat=40.36924053164285&lon=26.688114959650537 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58607 - "GET /v1/depth?lat=40.36924053164285&lon=26.688114959650537 HTTP/1.1" 200 OK
+INFO:     192.168.1.104:58608 - "GET /v1/depth?lat=40.36924053164285&lon=26.688114959650537 HTTP/1.1" 200 OK

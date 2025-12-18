@@ -1,21 +1,25 @@
 import { useState, useEffect } from "react";
 import { View, Text, ScrollView, TextInput, Pressable, ActivityIndicator, Alert, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft, Camera, MapPin } from "phosphor-react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import MapView, { Marker } from "react-native-maps";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
-import { addPlace } from "@/services/places-service";
-import { Category } from "@/types/category";
-import { CATEGORIES, CATEGORY_LABELS } from "@/types/category";
+import { addPlace, getPlaceById, updatePlace } from "@/services/places-service";
+import { useAdminStore } from "@/stores/admin-store";
+import { Category, ParentCategoryKey, categoryStructure, childCategoryToCategory } from "@/types/category";
+import { CATEGORY_LABELS } from "@/types/category";
+import { CaretDown, CaretUp } from "phosphor-react-native";
+import { logError } from "@/lib/logger";
 
 export default function AddPlaceScreen() {
   const { colorScheme } = useTheme();
   const { t } = useI18n();
   const isDark = colorScheme === "dark";
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState<Category | null>(null);
@@ -24,44 +28,79 @@ export default function AddPlaceScreen() {
   const [images, setImages] = useState<string[]>([]);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [loadingPlace, setLoadingPlace] = useState(false);
   const [mapRegion, setMapRegion] = useState<{ latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number } | null>(null);
+  const [expandedParent, setExpandedParent] = useState<ParentCategoryKey | null>(null);
+  const { user } = useAdminStore();
 
-  // Get current location on mount
+  // Load place for editing
   useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert("Permission", "Location permission is required");
-          return;
+    if (edit) {
+      loadPlaceForEdit(edit);
+    } else {
+      // Get current location on mount (only if not editing)
+      (async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== "granted") {
+            Alert.alert(t("add_place.permission_title"), t("add_place.permission_message"));
+            return;
+          }
+
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          });
+
+          const coords = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          };
+
+          setCoordinates(coords);
+          setMapRegion({
+            ...coords,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        } catch (error) {
+          logError("[AddPlaceScreen] Error getting location:", error);
         }
+      })();
+    }
+  }, [edit]);
 
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-
-        const coords = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        };
-
-        setCoordinates(coords);
+  const loadPlaceForEdit = async (placeId: string) => {
+    try {
+      setLoadingPlace(true);
+      setIsEditing(true);
+      const place = await getPlaceById(placeId);
+      if (place) {
+        setName(place.name);
+        setCategory(place.category);
+        setDescription(place.description);
+        setAddress(place.address);
+        setImages(place.images);
+        setCoordinates(place.coordinates);
         setMapRegion({
-          ...coords,
+          ...place.coordinates,
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         });
-      } catch (error) {
-        console.error("Error getting location:", error);
       }
-    })();
-  }, []);
+    } catch (error) {
+      logError("[AddPlaceScreen] Error loading place:", error);
+      Alert.alert(t("error"), t("add_place.error_load_failed"));
+    } finally {
+      setLoadingPlace(false);
+    }
+  };
 
   const handlePickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission", "Camera roll permission is required");
+        Alert.alert(t("add_place.camera_permission_title"), t("add_place.camera_permission_message"));
         return;
       }
 
@@ -76,8 +115,8 @@ export default function AddPlaceScreen() {
         setImages([...images, ...newImages]);
       }
     } catch (error) {
-      console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image");
+      logError("[AddPlaceScreen] Error picking image:", error);
+      Alert.alert(t("error"), t("add_place.error_pick_image"));
     }
   };
 
@@ -92,49 +131,75 @@ export default function AddPlaceScreen() {
 
   const handleSubmit = async () => {
     if (!name.trim()) {
-      Alert.alert("Error", "Please enter a name");
+      Alert.alert(t("error"), t("add_place.error_name_required"));
       return;
     }
 
     if (!category) {
-      Alert.alert("Error", "Please select a category");
+      Alert.alert(t("error"), t("add_place.error_category_required"));
       return;
     }
 
     if (!address.trim()) {
-      Alert.alert("Error", "Please enter an address");
+      Alert.alert(t("error"), t("add_place.error_address_required"));
       return;
     }
 
     if (!coordinates) {
-      Alert.alert("Error", "Please select a location on the map");
+      Alert.alert(t("error"), t("add_place.error_location_required"));
       return;
     }
 
     setSubmitting(true);
     try {
-      // TODO: Get actual user ID from auth
-      const placeId = await addPlace({
-        name: name.trim(),
-        category,
-        description: description.trim(),
-        address: address.trim(),
-        coordinates,
-        images,
-        createdBy: "anonymous",
-      });
+      if (isEditing && edit) {
+        // Update existing place
+        await updatePlace(edit, {
+          name: name.trim(),
+          category,
+          description: description.trim(),
+          address: address.trim(),
+          coordinates,
+          images,
+          createdBy: user?.uid || "admin", // Keep original creator
+        });
 
-      Alert.alert("Success", "Place added successfully", [
-        {
-          text: "OK",
-          onPress: () => {
-            router.replace(`/(places)/${placeId}`);
+        Alert.alert(t("ok"), t("add_place.success_updated"), [
+          {
+            text: t("ok"),
+            onPress: () => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/explore");
+              }
+            },
           },
-        },
-      ]);
+        ]);
+      } else {
+        // Create new place
+        const placeId = await addPlace({
+          name: name.trim(),
+          category,
+          description: description.trim(),
+          address: address.trim(),
+          coordinates,
+          images,
+          createdBy: user?.uid || "anonymous",
+        });
+
+        Alert.alert(t("ok"), t("add_place.success_added"), [
+          {
+            text: t("ok"),
+            onPress: () => {
+              router.replace(`/(places)/${placeId}`);
+            },
+          },
+        ]);
+      }
     } catch (error) {
-      console.error("Error adding place:", error);
-      Alert.alert("Error", "Failed to add place");
+      logError("[AddPlaceScreen] Error saving place:", error);
+      Alert.alert(t("error"), isEditing ? t("add_place.error_update_failed") : t("add_place.error_add_failed"));
     } finally {
       setSubmitting(false);
     }
@@ -145,11 +210,17 @@ export default function AddPlaceScreen() {
       {/* Header */}
       <View className={`px-6 pt-4 pb-4 border-b ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
         <View className="flex-row items-center justify-between">
-          <Pressable onPress={() => router.back()}>
+          <Pressable onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(tabs)/explore");
+            }
+          }}>
             <ArrowLeft size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
           </Pressable>
           <Text className={`text-xl font-bold ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
-            {t("add_place")}
+            {isEditing ? t("add_place.edit_place") : t("add_place")}
           </Text>
           <View style={{ width: 24 }} />
         </View>
@@ -177,32 +248,74 @@ export default function AddPlaceScreen() {
             <Text className={`text-base font-semibold mb-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
               {t("category")} *
             </Text>
-            <View className="flex-row flex-wrap">
-              {CATEGORIES.map((cat) => (
-                <Pressable
-                  key={cat}
-                  onPress={() => setCategory(cat)}
-                  className={`rounded-lg px-4 py-2 mr-2 mb-2 border ${
-                    category === cat
-                      ? "bg-primary border-primary"
-                      : isDark
-                      ? "bg-card-dark border-border-dark"
-                      : "bg-card border-border"
-                  }`}
-                >
-                  <Text
-                    className={`text-sm font-medium ${
-                      category === cat
-                        ? "text-white"
-                        : isDark
-                        ? "text-card-foreground-dark"
-                        : "text-card-foreground"
-                    }`}
-                  >
-                    {t(CATEGORY_LABELS[cat])}
-                  </Text>
-                </Pressable>
-              ))}
+            <View className="gap-2">
+              {(Object.keys(categoryStructure) as ParentCategoryKey[]).map((parentKey) => {
+                const parent = categoryStructure[parentKey];
+                const isExpanded = expandedParent === parentKey;
+                
+                return (
+                  <View key={parentKey} className={`rounded-lg border ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
+                    {/* Parent Category Header */}
+                    <Pressable
+                      onPress={() => setExpandedParent(isExpanded ? null : parentKey)}
+                      className="flex-row items-center justify-between p-3"
+                    >
+                      <View className="flex-row items-center gap-2">
+                        <Text
+                          className={`text-base font-semibold ${
+                            isDark ? "text-card-foreground-dark" : "text-card-foreground"
+                          }`}
+                        >
+                          {parent.label}
+                        </Text>
+                      </View>
+                      {isExpanded ? (
+                        <CaretUp size={20} color={isDark ? "#94A3B8" : "#64748B"} />
+                      ) : (
+                        <CaretDown size={20} color={isDark ? "#94A3B8" : "#64748B"} />
+                      )}
+                    </Pressable>
+                    
+                    {/* Child Categories */}
+                    {isExpanded && (
+                      <View className="px-3 pb-3 pt-1">
+                        <View className="flex-row flex-wrap gap-2">
+                          {parent.sub.map((childLabel) => {
+                            const childCategory = childCategoryToCategory[childLabel];
+                            const isSelected = category === childCategory;
+                            
+                            return (
+                              <Pressable
+                                key={childLabel}
+                                onPress={() => setCategory(childCategory)}
+                                className={`rounded-lg px-4 py-2 border ${
+                                  isSelected
+                                    ? "bg-primary border-primary"
+                                    : isDark
+                                    ? "bg-card-dark border-border-dark"
+                                    : "bg-card border-border"
+                                }`}
+                              >
+                                <Text
+                                  className={`text-sm font-medium ${
+                                    isSelected
+                                      ? "text-white"
+                                      : isDark
+                                      ? "text-card-foreground-dark"
+                                      : "text-card-foreground"
+                                  }`}
+                                >
+                                  {childLabel}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           </View>
 
@@ -316,7 +429,7 @@ export default function AddPlaceScreen() {
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text className="text-white font-semibold text-center text-lg">
-                {t("submit")}
+                {isEditing ? t("add_place.update") : t("submit")}
               </Text>
             )}
           </Pressable>

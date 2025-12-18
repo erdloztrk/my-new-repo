@@ -1,142 +1,45 @@
-import { useEffect, useState } from "react";
-import { View, Text, ScrollView, ActivityIndicator, Pressable, TextInput, Alert, Platform, Linking } from "react-native";
+import { View, Text, ScrollView, ActivityIndicator, Pressable, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
-import { ArrowLeft, Heart, Share, MapPin, NavigationArrow } from "phosphor-react-native";
+import { ArrowLeft, Heart, Share, MapPin, NavigationArrow, Folder } from "phosphor-react-native";
 import MapView, { Marker } from "react-native-maps";
 import { useTheme } from "@/stores/theme-store";
 import { useI18n } from "@/stores/i18n-store";
-import { useFavorites } from "@/stores/favorites-store";
-import { getPlaceById } from "@/services/places-service";
-import { subscribeToReviews, addReview } from "@/services/reviews-service";
-import { Place } from "@/types/place";
-import { Review } from "@/types/review";
 import { ImageCarousel } from "@/components/places/ImageCarousel";
 import { RatingStars } from "@/components/places/RatingStars";
 import { ReviewCard } from "@/components/places/ReviewCard";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+// ViewModel
+import { usePlaceDetailViewModel } from "@/viewmodels/places/usePlaceDetailViewModel";
+import { AddToCollectionModal } from "@/components/collections/AddToCollectionModal";
+import { useState } from "react";
 
 export default function PlaceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colorScheme } = useTheme();
   const { t } = useI18n();
   const isDark = colorScheme === "dark";
+  const [showAddToCollection, setShowAddToCollection] = useState(false);
 
-  const { favorites, addFavorite, removeFavorite, isFavorite, loadFavorites } = useFavorites();
-
-  const [place, setPlace] = useState<Place | null>(null);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState("");
-  const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewsError, setReviewsError] = useState(false);
-
-  useEffect(() => {
-    if (!id) return;
-
-    const loadPlace = async () => {
-      try {
-        const placeData = await getPlaceById(id);
-        setPlace(placeData);
-      } catch (error) {
-        console.error("Error loading place:", error);
-        Alert.alert("Error", "Failed to load place details");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPlace();
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) return;
-
-    const unsubscribe = subscribeToReviews(
-      id,
-      (reviewsData) => {
-        setReviews(reviewsData);
-        setReviewsError(false);
-      },
-      (error) => {
-        console.error("Error subscribing to reviews:", error);
-        setReviewsError(true);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [id]);
-
-  useEffect(() => {
-    loadFavorites();
-  }, []);
-
-  const handleFavorite = async () => {
-    if (!id) return;
-
-    if (isFavorite(id)) {
-      await removeFavorite(id);
-    } else {
-      await addFavorite(id);
-    }
-  };
-
-  const handleShare = () => {
-    // TODO: Implement share functionality
-    Alert.alert("Share", "Share functionality coming soon");
-  };
-
-  const openExternalMap = async () => {
-    if (!place?.coordinates) return;
-    const { latitude, longitude } = place.coordinates;
-    
-    try {
-      if (Platform.OS === "ios") {
-        const url = `maps://maps.apple.com/?daddr=${latitude},${longitude}`;
-        const canOpen = await Linking.canOpenURL(url);
-        if (canOpen) {
-          await Linking.openURL(url);
-        } else {
-          // Fallback to https:// URL
-          const httpsUrl = `https://maps.apple.com/?daddr=${latitude},${longitude}`;
-          await Linking.openURL(httpsUrl);
-        }
-      } else {
-        const url = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`;
-        await Linking.openURL(url);
-      }
-    } catch (error) {
-      console.error("Error opening maps app:", error);
-    }
-  };
-
-  const handleSubmitReview = async () => {
-    if (!id || !reviewComment.trim()) {
-      Alert.alert("Error", "Please enter a comment");
-      return;
-    }
-
-    setSubmittingReview(true);
-    try {
-      // TODO: Get actual user ID and name from auth
-      await addReview({
-        placeId: id,
-        userId: "anonymous",
-        userName: "Anonymous User",
-        rating: reviewRating,
-        comment: reviewComment,
-      });
-
-      setReviewComment("");
-      setReviewRating(5);
-      Alert.alert("Success", "Review added successfully");
-    } catch (error) {
-      console.error("Error adding review:", error);
-      Alert.alert("Error", "Failed to add review");
-    } finally {
-      setSubmittingReview(false);
-    }
-  };
+  // ViewModel - All business logic extracted
+  const {
+    place,
+    reviews,
+    loading,
+    reviewsError,
+    reviewRating,
+    reviewComment,
+    submittingReview,
+    isFavorite,
+    setReviewRating,
+    setReviewComment,
+    handleFavorite,
+    handleSubmitReview,
+    handleShare,
+    openExternalMap,
+  } = usePlaceDetailViewModel({ placeId: id });
 
   if (loading) {
     return (
@@ -160,7 +63,6 @@ export default function PlaceDetailScreen() {
     );
   }
 
-  const favorite = isFavorite(place.id);
 
   return (
     <SafeAreaView className={`flex-1 ${isDark ? "bg-background-dark" : "bg-background"}`}>
@@ -168,18 +70,27 @@ export default function PlaceDetailScreen() {
         {/* Header */}
         <View className={`px-6 pt-4 pb-4 border-b ${isDark ? "border-border-dark bg-card-dark" : "border-border bg-card"}`}>
           <View className="flex-row items-center justify-between">
-            <Pressable onPress={() => router.back()}>
+            <Pressable onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/explore");
+              }
+            }}>
               <ArrowLeft size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
             </Pressable>
             <View className="flex-row items-center">
               <Pressable onPress={handleShare} className="mr-4">
                 <Share size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
               </Pressable>
+              <Pressable onPress={() => setShowAddToCollection(true)} className="mr-4">
+                <Folder size={24} color={isDark ? "#ECEDEE" : "#11181C"} weight="regular" />
+              </Pressable>
               <Pressable onPress={handleFavorite}>
                 <Heart
                   size={24}
-                  color={favorite ? "#FF6584" : (isDark ? "#ECEDEE" : "#11181C")}
-                  weight={favorite ? "fill" : "regular"}
+                  color={isFavorite ? "#FF6584" : (isDark ? "#ECEDEE" : "#11181C")}
+                  weight={isFavorite ? "fill" : "regular"}
                 />
               </Pressable>
             </View>
@@ -249,13 +160,9 @@ export default function PlaceDetailScreen() {
               {/* Navigation Button */}
               <Pressable
                 onPress={openExternalMap}
-                className={`flex-row items-center justify-center py-3 px-4 rounded-xl ${isDark ? "bg-primary" : "bg-primary"}`}
+                className="flex-row items-center justify-center py-3 px-4 rounded-xl bg-primary"
               >
-                <NavigationArrow
-                  size={20}
-                  color="#FFFFFF"
-                  weight="bold"
-                />
+                <NavigationArrow size={20} color="#FFFFFF" weight="bold" />
                 <Text className="text-white font-semibold ml-2">
                   {t("show_route") || "Yönlendir"}
                 </Text>
@@ -270,7 +177,7 @@ export default function PlaceDetailScreen() {
             </Text>
 
             {/* Add Review Form */}
-            <View className={`rounded-xl p-4 mb-4 ${isDark ? "bg-muted-dark" : "bg-muted"}`}>
+            <Card variant="default" padding="md" className="mb-4">
               <Text className={`text-base font-semibold mb-2 ${isDark ? "text-foreground-dark" : "text-foreground"}`}>
                 {t("add_review")}
               </Text>
@@ -301,37 +208,36 @@ export default function PlaceDetailScreen() {
               </View>
 
               {/* Comment */}
-              <TextInput
+              <Input
                 value={reviewComment}
                 onChangeText={setReviewComment}
                 placeholder={t("review_comment_placeholder")}
-                placeholderTextColor={isDark ? "#94A3B8" : "#64748B"}
                 multiline
                 numberOfLines={4}
-                className={`rounded-lg p-3 mb-3 ${isDark ? "bg-card-dark text-foreground-dark" : "bg-card text-foreground"}`}
-                style={{
-                  minHeight: 100,
+                containerClassName="mb-3"
+                inputClassName="min-h-[100px]"
+                inputStyle={{
                   textAlignVertical: "top",
-                  color: isDark ? "#ECEDEE" : "#11181C",
+                  minHeight: 100,
                 }}
               />
 
               {/* Submit Button */}
-              <Pressable
+              <Button
                 onPress={handleSubmitReview}
-                disabled={submittingReview}
-                className={`rounded-lg py-3 ${submittingReview ? "opacity-50" : ""} bg-primary`}
+                isLoading={submittingReview}
+                isDisabled={submittingReview}
+                fullWidth
+                variant="primary"
               >
-                <Text className="text-white font-semibold text-center">
-                  {submittingReview ? t("submitting") : t("submit_review")}
-                </Text>
-              </Pressable>
-            </View>
+                {submittingReview ? t("submitting") : t("submit_review")}
+              </Button>
+            </Card>
 
             {/* Reviews List */}
             {reviewsError ? (
               <Text className={`text-sm text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
-                {t("reviews_not_available") || "Yorumlar şu anda yüklenemiyor."}
+                {t("reviews_not_available")}
               </Text>
             ) : reviews.length === 0 ? (
               <Text className={`text-sm text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
@@ -345,6 +251,15 @@ export default function PlaceDetailScreen() {
           </View>
         </View>
       </ScrollView>
+      
+      {/* Add to Collection Modal */}
+      {id && (
+        <AddToCollectionModal
+          visible={showAddToCollection}
+          placeId={id}
+          onClose={() => setShowAddToCollection(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }

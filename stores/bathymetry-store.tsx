@@ -4,8 +4,9 @@
 
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { DepthResponse, ScoreResponse, SpeciesKey, BathymetryCacheEntry, WeatherData, ContourLine } from "@/types/bathymetry";
-import { getDepth, getScore, getContours, roundForCache } from "@/services/bathymetry-service";
+import type { DepthResponse, ScoreResponse, SpeciesKey, BathymetryCacheEntry, WeatherData } from "@/types/bathymetry";
+import { getDepth, getScore, roundForCache } from "@/services/bathymetry-service";
+import { logDebug, logError } from "@/lib/logger";
 
 interface BathymetryState {
   // Cache: keyed by rounded lat/lon
@@ -18,15 +19,10 @@ interface BathymetryState {
   loading: boolean;
   error: string | null;
   
-  // Contour lines
-  contours: ContourLine[];
-  loadingContours: boolean;
-  
   // Actions
   setSelectedCoord: (coord: { lat: number; lon: number } | null) => void;
   queryDepth: (lat: number, lon: number) => Promise<void>;
   queryScore: (lat: number, lon: number, species: SpeciesKey, weather?: WeatherData) => Promise<void>;
-  queryContours: (minLat: number, maxLat: number, minLon: number, maxLon: number) => Promise<void>;
   clearError: () => void;
   
   // Cache management
@@ -36,7 +32,7 @@ interface BathymetryState {
 }
 
 const CACHE_KEY = "@bathymetry_cache";
-const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days - depth data doesn't change frequently
 
 function getCacheKey(lat: number, lon: number): string {
   const rounded = roundForCache(lat, lon);
@@ -56,25 +52,35 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
   },
   loading: false,
   error: null,
-  contours: [],
-  loadingContours: false,
 
   setSelectedCoord: (coord) => {
     set({ selectedCoord: coord, error: null });
     
     if (coord) {
-      // Check cache first
+      // Check cache first - use cached data immediately if available (even if slightly stale)
       const key = getCacheKey(coord.lat, coord.lon);
       const cached = get().cache.get(key);
       
-      if (cached && Date.now() - cached.timestamp < CACHE_MAX_AGE) {
-        // Use cached data
+      if (cached) {
+        // Always show cached data immediately if available (even if stale)
         set({
           depth: cached.depth,
           scores: cached.score,
         });
+        
+        // If cache is fresh, we're done. Otherwise, refresh in background
+        const cacheAge = Date.now() - cached.timestamp;
+        if (cacheAge < CACHE_MAX_AGE) {
+          // Cache is fresh, no need to query
+          return;
+        } else {
+          // Cache is stale, refresh in background (non-blocking)
+          get().queryDepth(coord.lat, coord.lon).catch(() => {
+            // Silent fail - we already have cached data displayed
+          });
+        }
       } else {
-        // Query new data
+        // No cache, query new data
         get().queryDepth(coord.lat, coord.lon);
       }
     } else {
@@ -120,12 +126,12 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
       get().saveCache();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to query depth";
-      console.error("[BathymetryStore] queryDepth error:", errorMessage);
+      logError("[BathymetryStore] queryDepth error:", errorMessage);
 
       // Try to use stale cache if available
       const cached = get().cache.get(key);
       if (cached?.depth) {
-        console.log("[BathymetryStore] Using cached depth data");
+        logDebug("[BathymetryStore] Using cached depth data");
         set({ depth: cached.depth, loading: false, error: null });
       } else {
         // Only show error if we don't have any data
@@ -160,7 +166,7 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
       get().saveCache();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to query score";
-      console.error("[BathymetryStore] queryScore error:", errorMessage);
+      logError("[BathymetryStore] queryScore error:", errorMessage);
       
       // Only set error if it's not a network error (mock data handles that)
       if (!errorMessage.includes("Network request failed") && !errorMessage.includes("Backend")) {
@@ -170,25 +176,13 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
       // Try to use stale cache if available
       const cached = get().cache.get(key);
       if (cached?.score[species]) {
-        console.log("[BathymetryStore] Using cached score data");
+        logDebug("[BathymetryStore] Using cached score data");
         const scores = { ...get().scores, [species]: cached.score[species] };
         set({ scores });
       }
     }
   },
 
-  queryContours: async (minLat, maxLat, minLon, maxLon) => {
-    set({ loadingContours: true });
-    
-    try {
-      const response = await getContours(minLat, maxLat, minLon, maxLon);
-      set({ contours: response.contours, loadingContours: false });
-    } catch (error) {
-      console.error("[BathymetryStore] Error fetching contours:", error);
-      set({ loadingContours: false });
-      // Don't set error for contours - it's optional
-    }
-  },
 
   clearError: () => set({ error: null }),
 
@@ -211,7 +205,7 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
         set({ cache });
       }
     } catch (error) {
-      console.error("Failed to load bathymetry cache:", error);
+      logError("[BathymetryStore] Failed to load bathymetry cache:", error);
     }
   },
 
@@ -224,7 +218,7 @@ export const useBathymetryStore = create<BathymetryState>((set, get) => ({
       }
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data));
     } catch (error) {
-      console.error("Failed to save bathymetry cache:", error);
+      logError("[BathymetryStore] Failed to save bathymetry cache:", error);
     }
   },
 
