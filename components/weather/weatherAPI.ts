@@ -1,7 +1,36 @@
 import { WeatherResponse, AirQuality, LocationCoords, CurrentWeather, DailyForecast } from "./weatherTypes";
-import { logWarn, logError } from "@/lib/logger";
+import { logWarn, logError, logDebug } from "@/lib/logger";
+import Constants from "expo-constants";
 
-const OPENWEATHER_API_KEY = process.env.EXPO_PUBLIC_OPENWEATHER_KEY;
+// Try multiple sources for the API key (Expo SDK compatibility)
+const getOpenWeatherKey = (): string | undefined => {
+  // Priority 1: process.env (standard Expo way)
+  if (process.env.EXPO_PUBLIC_OPENWEATHER_KEY) {
+    return process.env.EXPO_PUBLIC_OPENWEATHER_KEY;
+  }
+  
+  // Priority 2: expo-constants extra (for EAS builds or custom configs)
+  const extra = (Constants.expoConfig as { extra?: { OPENWEATHER_KEY?: string } } | undefined)?.extra;
+  if (extra?.OPENWEATHER_KEY) {
+    return extra.OPENWEATHER_KEY;
+  }
+  
+  // Priority 3: legacy manifest extra
+  const manifestExtra = (Constants as { manifest?: { extra?: { OPENWEATHER_KEY?: string } } }).manifest?.extra;
+  if (manifestExtra?.OPENWEATHER_KEY) {
+    return manifestExtra.OPENWEATHER_KEY;
+  }
+  
+  return undefined;
+};
+
+const OPENWEATHER_API_KEY = getOpenWeatherKey();
+
+// Dev-only log for debugging
+if (__DEV__) {
+  console.log("[Weather] hasKey:", Boolean(OPENWEATHER_API_KEY));
+}
+
 // Using free tier compatible APIs
 const BASE_URL_CURRENT = "https://api.openweathermap.org/data/2.5/weather";
 const BASE_URL_FORECAST = "https://api.openweathermap.org/data/2.5/forecast";
