@@ -1,0 +1,75 @@
+{
+  "generatedAtMs": 1766155568784,
+  "places": [
+    {
+      "id": "seed-canakkale-1",
+      "name": "Canakkale Kordon",
+      "description": "Seaside promenade",
+      "lat": 40.1553,
+      "lng": 26.4142
+    },
+    {
+      "id": "seed-canakkale-2",
+      "name": "Saat Kulesi",
+      "description": "Clock tower",
+      "lat": 40.1557,
+      "lng": 26.413
+    },
+    {
+      "id": "seed-canakkale-3",
+      "name": "Troya Muzesi",
+      "description": "Troy Museum",
+      "lat": 39.9576,
+      "lng": 26.2386
+    },
+    {
+      "id": "seed-canakkale-4",
+      "name": "Aynali Carsi",
+      "description": "Historic bazaar",
+      "lat": 40.1539,
+      "lng": 26.4089
+    },
+    {
+      "id": "seed-canakkale-5",
+      "name": "57. Alay Sehitligi",
+      "description": "Gallipoli memorial",
+      "lat": 40.2434,
+      "lng": 26.2801
+    },
+    {
+      "id": "seed-canakkale-6",
+      "name": "Anzak Koyu",
+      "description": "Beach area",
+      "lat": 40.2489,
+      "lng": 26.2818
+    },
+    {
+      "id": "seed-canakkale-7",
+      "name": "Conkbayiri",
+      "description": "Panoramic hill",
+      "lat": 40.2634,
+      "lng": 26.2896
+    },
+    {
+      "id": "seed-canakkale-8",
+      "name": "Kilitbahir Kalesi",
+      "description": "Fortress",
+      "lat": 40.1459,
+      "lng": 26.385
+    },
+    {
+      "id": "seed-canakkale-9",
+      "name": "Bozcaada Merkez",
+      "description": "Island center",
+      "lat": 39.833,
+      "lng": 26.0706
+    },
+    {
+      "id": "seed-canakkale-10",
+      "name": "Gokceada Merkez",
+      "description": "Island center",
+      "lat": 40.2046,
+      "lng": 25.9097
+    }
+  ]
+}
