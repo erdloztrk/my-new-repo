@@ -7,6 +7,7 @@ import * as Linking from "expo-linking";
 import { ThemeProvider, useTheme } from "@/stores/theme-store";
 import { SplashScreen } from "@/components/splash/SplashScreen";
 import { getCollectionByShareId } from "@/services/collections-service";
+import { useAdminStore } from "@/stores/admin-store";
 import { logError } from "@/lib/logger";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "../global.css";
@@ -19,6 +20,12 @@ function RootStack() {
   const router = useRouter();
   const [showSplash, setShowSplash] = useState(true);
   const [isFirstLaunch, setIsFirstLaunch] = useState<boolean | null>(null);
+  const { checkAuth } = useAdminStore();
+
+  // Check admin status on app startup
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   // Check if first launch
   useEffect(() => {

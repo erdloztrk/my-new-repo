@@ -136,11 +136,19 @@ export default function HomeScreen() {
         </View>
 
         {/* Weather Widget */}
-        {weather && (
+        {weather ? (
           <View className="px-6 mb-6">
             <WeatherDataCard weather={weather} />
           </View>
-        )}
+        ) : weatherLoading ? null : __DEV__ ? (
+          <View className="px-6 mb-6">
+            <Card variant="default" padding="md" className="items-center">
+              <Text className={`text-sm text-center ${isDark ? "text-muted-foreground-dark" : "text-muted-foreground"}`}>
+                Weather not configured
+              </Text>
+            </Card>
+          </View>
+        ) : null}
 
         {/* Featured Section Placeholder */}
         <View className="px-6 mb-8">

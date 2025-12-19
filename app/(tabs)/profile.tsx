@@ -21,10 +21,18 @@ export default function ProfileScreen() {
   const { userRole, setUserRole, handleLogin } = useProfileViewModel();
   const { isAdmin } = useAdminStore();
 
-  // Eğer kullanıcı admin ise, profil ekranına geldiğinde otomatik admin dashboard'a yönlendir
+  // Eğer kullanıcı admin ise ve tab navigation ile profile'a gelindiyse otomatik admin dashboard'a yönlendir
+  // Ancak geri tuşu ile gelindiyse yönlendirme yapma (döngüyü önlemek için)
   React.useEffect(() => {
     if (isAdmin) {
-      router.replace("/(admin)/dashboard");
+      // Sadece tab navigation ile gelindiyse yönlendir (router.canGoBack() false ise)
+      // Geri tuşu ile gelindiyse (router.canGoBack() true) yönlendirme yapma
+      const timer = setTimeout(() => {
+        if (!router.canGoBack()) {
+          router.replace("/(admin)/dashboard");
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [isAdmin]);
 

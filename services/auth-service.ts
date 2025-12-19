@@ -1,30 +1,43 @@
 import { signInWithEmailAndPassword, signOut, User, onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { auth } from "./firebase";
 import { logError, logDebug } from "@/lib/logger";
 
 export interface AdminUser {
   uid: string;
   email: string;
-  role: "admin" | "user";
 }
 
 /**
- * Admin olarak giriş yap
+ * Check if user has admin claim in their token
+ */
+export async function checkAdminClaim(user: User): Promise<boolean> {
+  try {
+    const tokenResult = await user.getIdTokenResult(true);
+    const isAdmin = tokenResult.claims.admin === true;
+    
+    if (__DEV__) {
+      logDebug("[AuthService] token claims:", tokenResult.claims);
+      logDebug("[AuthService] isAdmin(claim):", isAdmin);
+    }
+    
+    return isAdmin;
+  } catch (error) {
+    logError("[AuthService] Error checking admin claim:", error);
+    return false;
+  }
+}
+
+/**
+ * Admin olarak giriş yap (custom claim kontrolü ile)
  */
 export async function loginAsAdmin(email: string, password: string): Promise<AdminUser> {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    const userDoc = await getDoc(doc(db, "users", user.uid));
-    if (!userDoc.exists()) {
-      await signOut(auth);
-      throw new Error("User not found in database");
-    }
-
-    const userData = userDoc.data();
-    if (userData?.role !== "admin") {
+    // Check admin claim from token
+    const isAdmin = await checkAdminClaim(user);
+    if (!isAdmin) {
       await signOut(auth);
       throw new Error("Access denied. Admin privileges required.");
     }
@@ -34,7 +47,6 @@ export async function loginAsAdmin(email: string, password: string): Promise<Adm
     return {
       uid: user.uid,
       email: user.email || "",
-      role: userData.role,
     };
   } catch (error: any) {
     logError("[AuthService] Login error:", error);
@@ -58,6 +70,16 @@ export function getCurrentUser(): User | null {
 
 export function onAuthStateChange(callback: (user: User | null) => void) {
   return onAuthStateChanged(auth, callback);
+}
+
+/**
+ * Check admin status for current user (uses custom claims)
+ */
+export async function getAdminStatus(user: User | null): Promise<boolean> {
+  if (!user) {
+    return false;
+  }
+  return await checkAdminClaim(user);
 }
 
 

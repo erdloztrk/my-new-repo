@@ -102,14 +102,14 @@ export default function AdminDashboardScreen() {
               if (router.canGoBack()) {
                 router.back();
               } else {
-                router.replace("/(tabs)/explore");
+                // Fallback to home tab if no history (profile'a gitme, döngü oluşmasın)
+                router.replace("/(tabs)");
               }
             } catch (error) {
-              // Fallback: try to navigate to explore tab
+              // Fallback: try to navigate to tabs root
               try {
-                router.replace("/(tabs)/explore");
+                router.replace("/(tabs)");
               } catch (fallbackError) {
-                // If that also fails, just log the error
                 logError("[AdminDashboard] Navigation error:", fallbackError);
               }
             }

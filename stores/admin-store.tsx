@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import type { User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/services/firebase";
-import { loginAsAdmin, logout, getCurrentUser, onAuthStateChange } from "@/services/auth-service";
+import { loginAsAdmin, logout, getCurrentUser, onAuthStateChange, getAdminStatus } from "@/services/auth-service";
 import { logError } from "@/lib/logger";
 
 interface AdminStore {
@@ -19,11 +17,11 @@ export const useAdminStore = create<AdminStore>((set) => {
   onAuthStateChange(async (user) => {
     if (user) {
       try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        const isAdmin = userDoc.exists() && userDoc.data()?.role === "admin";
+        // Check admin status from custom claims
+        const isAdmin = await getAdminStatus(user);
         set({ user, isAdmin });
       } catch (error) {
-        logError("[AdminStore] Error fetching user role:", error);
+        logError("[AdminStore] Error checking admin claim:", error);
         set({ user: null, isAdmin: false });
       }
     } else {
@@ -62,8 +60,8 @@ export const useAdminStore = create<AdminStore>((set) => {
         return;
       }
       try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        const isAdmin = userDoc.exists() && userDoc.data()?.role === "admin";
+        // Check admin status from custom claims
+        const isAdmin = await getAdminStatus(user);
         set({ user, isAdmin });
       } catch (error) {
         logError("[AdminStore] CheckAuth error:", error);
