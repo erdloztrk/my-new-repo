@@ -14,16 +14,18 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
-    // Transition-safe admin:
-    // 1) Primary: Custom claims (request.auth.token.admin == true)
-    // 2) Fallback: users/{uid}.role == "admin"  (keep only during migration)
+    // Claim-based admin ONLY (safe property access)
+    function isAdminClaim() {
+      return isAuthenticated()
+        && ('admin' in request.auth.token)
+        && request.auth.token.admin == true;
+    }
+
+    // Transition-safe admin (fallback only during migration)
     function isAdmin() {
-      return isAuthenticated() && (
-        (request.auth.token.admin == true) ||
-        (
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
-        )
+      return isAdminClaim() || (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
       );
     }
 
@@ -31,67 +33,73 @@ service cloud.firestore {
       return x is timestamp;
     }
 
+    // Safe "role unchanged" check (avoids undefined/property errors)
+    function roleUnchanged() {
+      return (('role' in resource.data) == ('role' in request.resource.data)) &&
+             (!('role' in resource.data) || request.resource.data.role == resource.data.role);
+    }
+
     // ---------------------------
     // USERS (private)
     // ---------------------------
     match /users/{userId} {
 
-      // Privacy: do NOT allow listing all users
-      // (If you later need admin listing, change to: allow list: if isAdmin(); )
       allow list: if false;
 
-      // Only owner or admin can read user doc
       allow get: if isOwner(userId) || isAdmin();
 
-      // Create:
-      // - user can only create their own doc id (userId == auth.uid)
-      // - uid field must match auth.uid
-      // - role field MUST NOT be provided by client
-      // - admin can create any doc but uid must match doc id
       allow create: if (
                       isAuthenticated()
                       && userId == request.auth.uid
                       && request.resource.data.uid == request.auth.uid
-                      && !('role' in request.resource.data)
+                      && !request.resource.data.keys().hasAny(["role"])
                     )
                     || (
-                      isAdmin()
+                      isAdminClaim()
                       && request.resource.data.uid == userId
                     );
 
-      // Update:
-      // - owner can update own doc
-      // - uid must remain unchanged
-      // - role must remain unchanged (prevents privilege escalation)
-      // - admin can update any doc but must keep uid stable
-      allow update: if (
-                      isOwner(userId)
-                      && request.resource.data.uid == resource.data.uid
-                      && request.resource.data.role == resource.data.role
-                    )
-                    || (
-                      isAdmin()
-                      && request.resource.data.uid == resource.data.uid
-                    );
+      allow update: if
+        exists(/databases/$(database)/documents/users/$(userId)) &&
+        (
+          (
+            isOwner(userId)
+            && request.resource.data.uid == resource.data.uid
+            && roleUnchanged()
+          )
+          || (
+            isAdminClaim()
+            && request.resource.data.uid == resource.data.uid
+          )
+        );
 
-      // Delete: owner or admin (istersen sadece admin yapabiliriz)
-      allow delete: if isOwner(userId) || isAdmin();
-    }
+      allow delete: if isAdminClaim();
 
-    // Allow per-user subcollections safely (only under the user's own doc)
-    // Example: /users/{uid}/favorites/*  or /users/{uid}/collections/*
-    match /users/{userId}/{document=**} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      // Optional subcollections under /users/{uid}/...
+      match /favorites/{favId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId);
+        allow update, delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /collections/{collectionId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId);
+        allow update, delete: if isOwner(userId) || isAdmin();
+
+        match /items/{itemId} {
+          allow read: if isOwner(userId) || isAdmin();
+          allow create: if isOwner(userId);
+          allow update, delete: if isOwner(userId) || isAdmin();
+        }
+      }
     }
 
     // ---------------------------
     // PLACES
     // ---------------------------
     match /places/{placeId} {
-      // Public read (change to isAuthenticated() if you want)
       allow read: if true;
-
-      // Only admin can write
       allow create, update, delete: if isAdmin();
     }
 
@@ -99,14 +107,8 @@ service cloud.firestore {
     // REVIEWS (top-level)
     // ---------------------------
     match /reviews/{reviewId} {
-      // Public read (change to isAuthenticated() if you want)
       allow read: if true;
 
-      // Create:
-      // - must be authed
-      // - must own review via userId
-      // - createdAt must be a timestamp and not in the future
-      // - rating must be 1..5
       allow create: if isAuthenticated()
                     && request.resource.data.userId == request.auth.uid
                     && isTimestamp(request.resource.data.createdAt)
@@ -115,21 +117,26 @@ service cloud.firestore {
                     && request.resource.data.rating >= 1
                     && request.resource.data.rating <= 5;
 
-      // Update/Delete:
-      // - owner or admin
-      // - userId cannot change
-      allow update: if (isAdmin())
-                    || (
-                      isAuthenticated()
-                      && resource.data.userId == request.auth.uid
-                      && request.resource.data.userId == resource.data.userId
-                    );
+      allow update: if
+        exists(/databases/$(database)/documents/reviews/$(reviewId)) &&
+        (
+          (isAdmin())
+          || (
+            isAuthenticated()
+            && resource.data.userId == request.auth.uid
+            && request.resource.data.userId == resource.data.userId
+          )
+        );
 
-      allow delete: if (isAdmin())
-                    || (
-                      isAuthenticated()
-                      && resource.data.userId == request.auth.uid
-                    );
+      allow delete: if
+        exists(/databases/$(database)/documents/reviews/$(reviewId)) &&
+        (
+          (isAdmin())
+          || (
+            isAuthenticated()
+            && resource.data.userId == request.auth.uid
+          )
+        );
     }
 
     // ---------------------------
@@ -142,10 +149,7 @@ service cloud.firestore {
                     && request.resource.data.userId == request.auth.uid;
 
       allow update, delete: if isAuthenticated()
-                            && (
-                              resource.data.userId == request.auth.uid
-                              || isAdmin()
-                            );
+                            && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // ---------------------------
@@ -158,10 +162,7 @@ service cloud.firestore {
                     && request.resource.data.userId == request.auth.uid;
 
       allow update, delete: if isAuthenticated()
-                            && (
-                              resource.data.userId == request.auth.uid
-                              || isAdmin()
-                            );
+                            && (resource.data.userId == request.auth.uid || isAdmin());
 
       match /items/{itemId} {
         allow read: if isAuthenticated();
@@ -170,10 +171,7 @@ service cloud.firestore {
                       && request.resource.data.userId == request.auth.uid;
 
         allow update, delete: if isAuthenticated()
-                              && (
-                                resource.data.userId == request.auth.uid
-                                || isAdmin()
-                              );
+                              && (resource.data.userId == request.auth.uid || isAdmin());
       }
     }
 
