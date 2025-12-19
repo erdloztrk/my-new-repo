@@ -3,8 +3,12 @@ service cloud.firestore {
   match /databases/{database}/documents {
     
     // Helper functions
-    function isAuthenticated() {
+    function isSignedIn() {
       return request.auth != null;
+    }
+    
+    function isAuthenticated() {
+      return isSignedIn();
     }
     
     function isOwner(userId) {
@@ -16,56 +20,65 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
+    function hasOnlyAllowedFields(allowed) {
+      return request.resource.data.keys().hasOnly(allowed);
+    }
+    
     function isValidRating(rating) {
       return rating is int && rating >= 1 && rating <= 5;
     }
     
-    function isValidCoordinates(coords) {
-      return coords.latitude is float && 
-             coords.longitude is float &&
-             coords.latitude >= -90 && coords.latitude <= 90 &&
-             coords.longitude >= -180 && coords.longitude <= 180;
+    function isValidLatLng() {
+      // Accept either latlng (GeoPoint) or {latitude, longitude} map
+      return (
+        (request.resource.data.coordinates is latlng &&
+         request.resource.data.coordinates.latitude >= -90 && 
+         request.resource.data.coordinates.latitude <= 90 &&
+         request.resource.data.coordinates.longitude >= -180 && 
+         request.resource.data.coordinates.longitude <= 180)
+        ||
+        (request.resource.data.coordinates is map &&
+         request.resource.data.coordinates.latitude is number &&
+         request.resource.data.coordinates.longitude is number &&
+         request.resource.data.coordinates.latitude >= -90 && 
+         request.resource.data.coordinates.latitude <= 90 &&
+         request.resource.data.coordinates.longitude >= -180 && 
+         request.resource.data.coordinates.longitude <= 180)
+      );
     }
     
     // Places collection
     // Read: Public (anyone can read)
-    // Write: Only admin or service account
+    // Write: ADMIN ONLY (MVP safe default)
     match /places/{placeId} {
       allow read: if true; // Public read access
       
-      allow create: if isAdmin() || 
-                       (isAuthenticated() && 
-                        request.resource.data.createdBy == request.auth.uid &&
-                        request.resource.data.rating == 0 &&
-                        request.resource.data.reviewCount == 0);
-      
-      allow update: if isAdmin() || 
-                       (isAuthenticated() && 
-                        // Users can only update their own places
-                        resource.data.createdBy == request.auth.uid &&
-                        // Cannot modify rating/reviewCount directly (aggregated fields)
-                        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'reviewCount']));
-      
-      allow delete: if isAdmin();
-      
-      // Validation
+      // Validation helper
       function validatePlace() {
         let data = request.resource.data;
-        return data.name is string && 
+        // Define allowed fields (adjust based on actual schema)
+        let allowedFields = ['name', 'category', 'description', 'address', 'coordinates', 
+                            'images', 'createdBy', 'rating', 'reviewCount', 'createdAt', 
+                            'updatedAt', 'geohash'];
+        return hasOnlyAllowedFields(allowedFields) &&
+               data.name is string && 
                data.name.size() > 0 &&
+               data.name.size() <= 200 &&
                data.category is string &&
                data.description is string &&
                data.address is string &&
-               isValidCoordinates(data.coordinates) &&
-               data.images is list &&
+               isValidLatLng() &&
+               (data.images == null || (data.images is list && data.images.size() <= 20)) &&
                data.createdBy is string &&
                data.rating is number &&
                data.reviewCount is int &&
                data.createdAt is timestamp;
       }
       
-      allow create: if validatePlace();
-      allow update: if validatePlace();
+      // ADMIN ONLY for writes (MVP safe default)
+      allow create: if isAdmin() && validatePlace();
+      allow update: if isAdmin() && validatePlace();
+      allow delete: if isAdmin();
     }
     
     // Reviews collection
@@ -127,17 +140,25 @@ service cloud.firestore {
                       request.resource.data.placeIds is list;
     }
     
+    // Helper function to check if collection can be read
+    function canReadCollection(collectionId) {
+      let c = get(/databases/$(database)/documents/collections/$(collectionId));
+      return (isSignedIn() && c.data.userId == request.auth.uid) || (c.data.isPublic == true);
+    }
+    
     // Collections/Lists (user-created lists of places)
-    // Read: Public (for sharing)
+    // Read: Owner or isPublic == true
     // Write: Owner only
     match /collections/{collectionId} {
-      allow read: if true; // Public read for sharing
+      allow read: if canReadCollection(collectionId);
       
       allow create: if isAuthenticated() &&
                         request.resource.data.userId == request.auth.uid &&
                         request.resource.data.name is string &&
                         request.resource.data.name.size() > 0 &&
-                        request.resource.data.createdAt == request.time;
+                        // createdAt should be a timestamp (allow slight time difference)
+                        request.resource.data.createdAt is timestamp &&
+                        request.resource.data.createdAt <= request.time;
       
       allow update: if isOwner(resource.data.userId) &&
                        // Cannot change userId, createdAt
@@ -149,7 +170,7 @@ service cloud.firestore {
     
     // Collection items (places in a collection)
     match /collections/{collectionId}/items/{itemId} {
-      allow read: if true; // Public read
+      allow read: if canReadCollection(collectionId);
       
       allow write: if isAuthenticated() &&
                       // Check if user owns the parent collection

@@ -34,12 +34,22 @@ export default function NewCollectionScreen() {
     }
 
     try {
-      const collectionId = await createNewCollection({
+      const collectionData: any = {
         userId: user.uid,
         name: name.trim(),
-        emoji: selectedEmoji || undefined,
-        description: description.trim() || undefined,
-      });
+      };
+      
+      // Only add emoji if selected (not empty string)
+      if (selectedEmoji && selectedEmoji.trim()) {
+        collectionData.emoji = selectedEmoji.trim();
+      }
+      
+      // Only add description if provided (not empty string)
+      if (description && description.trim()) {
+        collectionData.description = description.trim();
+      }
+      
+      const collectionId = await createNewCollection(collectionData);
 
       if (collectionId) {
         router.back();

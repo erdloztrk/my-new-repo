@@ -166,10 +166,24 @@ export async function createCollection(collectionData: CollectionInput): Promise
     
     // Build document data - exclude undefined fields (Firestore doesn't accept undefined)
     const docData: any = {
-      ...collectionData,
+      userId: collectionData.userId,
+      name: collectionData.name,
       placeIds: collectionData.placeIds || [],
       createdAt: Timestamp.now(),
     };
+    
+    // Only add optional fields if they are defined (not undefined or empty string)
+    if (collectionData.emoji && collectionData.emoji.trim()) {
+      docData.emoji = collectionData.emoji.trim();
+    }
+    
+    if (collectionData.description && collectionData.description.trim()) {
+      docData.description = collectionData.description.trim();
+    }
+    
+    if (collectionData.isPublic !== undefined) {
+      docData.isPublic = collectionData.isPublic;
+    }
     
     // Only add shareId if it's defined (not undefined)
     if (shareId !== undefined) {
@@ -201,10 +215,14 @@ export async function updateCollection(
       updatedAt: Timestamp.now(),
     };
     
-    // Only include defined fields from updates
+    // Only include defined fields from updates (exclude undefined and empty strings for optional fields)
     Object.keys(updates).forEach((key) => {
       const value = (updates as any)[key];
       if (value !== undefined) {
+        // For optional string fields (emoji, description), skip empty strings
+        if ((key === "emoji" || key === "description") && typeof value === "string" && !value.trim()) {
+          return; // Skip empty strings
+        }
         updateData[key] = value;
       }
     });

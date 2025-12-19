@@ -147,6 +147,17 @@ const translations: Record<Language, Record<string, string>> = {
     filter_coffee: "Kahve",
     filter_nightlife: "Gece Hayatı",
     clear_search: "Temizle",
+    
+    // Atmosphere Widget
+    atmosphere_title: "Atmosfer",
+    updated_at: "Güncellendi",
+    cached_label: "Önbellek",
+    weather_details: "Hava Detayı",
+    humidity: "Nem",
+    air_quality: "Hava Kalitesi",
+    aqi: "AQI",
+    hourly_forecast: "Saatlik Tahmin",
+    
     featured_message: "Yakında burada şehrin en popüler mekanlarını göreceksin!",
     
     // Categories - Yeme & İçme
@@ -444,6 +455,16 @@ const translations: Record<Language, Record<string, string>> = {
     filter_coffee: "Coffee",
     filter_nightlife: "Nightlife",
     clear_search: "Clear",
+    
+    // Atmosphere Widget
+    atmosphere_title: "Atmosphere",
+    updated_at: "Updated",
+    cached_label: "Cached",
+    weather_details: "Weather Details",
+    humidity: "Humidity",
+    air_quality: "Air Quality",
+    aqi: "AQI",
+    hourly_forecast: "Hourly Forecast",
     
     // Categories - Food & Drink
     category_cafes: "Cafes",

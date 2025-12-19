@@ -32,12 +32,10 @@ expo-env.d.ts
 
 # Environment files (NEVER commit these!)
 .env
-.env.local
-.env.*.local
+.env.*
 *.env
 backend/.env
-backend/.env.local
-backend/.env.*.local
+backend/.env.*
 
 # Secrets and credentials
 secrets/
