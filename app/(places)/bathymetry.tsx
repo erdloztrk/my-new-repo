@@ -493,7 +493,7 @@ export default function BathymetryDetailPage() {
                     </Text>
                   </View>
                 )}
-                
+
                 {/* GEBCO Data */}
                 {depth.gebco && (
                   <View

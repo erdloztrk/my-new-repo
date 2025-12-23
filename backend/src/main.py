@@ -3,6 +3,7 @@ FastAPI backend service for bathymetry depth queries and species scoring.
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from functools import lru_cache
@@ -12,9 +13,6 @@ from fastapi import FastAPI, HTTPException, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, validator
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 import requests
 import time
 from datetime import datetime
@@ -35,11 +33,6 @@ app = FastAPI(
     description="Depth queries and species-based scoring for fishing app",
     version="1.0.0"
 )
-
-# Rate limiting setup
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS configuration - environment-based allowlist
 def get_cors_origins() -> list[str]:
@@ -96,6 +89,13 @@ app.add_middleware(
 _emodnet_dataset: Optional[rasterio.DatasetReader] = None
 _gebco_dataset: Optional[rasterio.DatasetReader] = None
 
+try:
+    import geopandas as gpd
+    from shapely.geometry import Point
+    HAS_GEOPANDAS = True
+except ImportError:
+    HAS_GEOPANDAS = False
+
 
 def get_emodnet_cog_path() -> Optional[Path]:
     """Get path to EMODnet COG file from environment or default."""
@@ -112,7 +112,6 @@ def get_gebco_cog_path() -> Path:
 
 
 
-@lru_cache(maxsize=1000)
 def query_depth_single(lat: float, lon: float, source: str) -> Optional[float]:
     """
     Query depth from a single dataset.
@@ -140,13 +139,25 @@ def query_depth_single(lat: float, lon: float, source: str) -> Optional[float]:
     
     try:
         values = list(dataset.sample([(lon, lat)]))
-        if values and not np.isnan(values[0]):
-            depth = float(values[0])
-            # EMODnet uses positive values for depth, convert to negative
-            if source == "EMODNET" and depth > 0:
-                depth = -depth
-            return depth
-    except Exception:
+        if values:
+            # Extract scalar value from array (rasterio returns arrays)
+            value = values[0]
+            if isinstance(value, np.ndarray):
+                value = value.item() if value.size > 0 else None
+            if value is not None and not np.isnan(value):
+                depth = float(value)
+                # EMODnet uses positive values for depth, convert to negative
+                if source == "EMODNET" and depth > 0:
+                    depth = -depth
+                return depth
+        else:
+            # No values returned - might be out of bounds
+            print(f"DEBUG: query_depth_single({source}) at ({lat}, {lon}): No values returned", file=sys.stderr)
+    except Exception as e:
+        # Log exception for debugging
+        print(f"ERROR: query_depth_single({source}) at ({lat}, {lon}): {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         pass
     
     return None
@@ -159,6 +170,7 @@ def query_depth(lat: float, lon: float) -> Tuple[Optional[float], str]:
     """
     Query depth at lat/lon from datasets.
     Tries EMODnet first (higher resolution for coastal areas), then falls back to GEBCO.
+    NASA GEBCO is only available via explicit mode selection.
     Uses LRU cache keyed by rounded coordinates (0.001° ≈ 111m).
     
     Returns:
@@ -167,7 +179,7 @@ def query_depth(lat: float, lon: float) -> Tuple[Optional[float], str]:
         Source: "EMODNET_2024" or "GEBCO_2024"
         Returns (None, None) if out of bounds
     """
-    # Try EMODnet first
+    # Try EMODnet first (highest resolution)
     emodnet_depth = query_depth_single(lat, lon, "EMODNET")
     if emodnet_depth is not None:
         return emodnet_depth, "EMODNET_2024"
@@ -221,7 +233,6 @@ async def startup():
             print(f"⚠ Warning: Failed to load GEBCO COG: {e}")
     else:
         print(f"⚠ Warning: GEBCO COG file not found: {gebco_path}")
-    
     
     if _emodnet_dataset is None and _gebco_dataset is None:
         print("✗ ERROR: No bathymetry datasets loaded!")
@@ -301,9 +312,7 @@ async def health():
 
 
 @app.get("/v1/depth", response_model=DepthResponse)
-@limiter.limit("100/minute")
 async def get_depth(
-    request: Request,
     lat: float = Query(..., ge=-90, le=90, description="Latitude (WGS84)"),
     lon: float = Query(..., ge=-180, le=180, description="Longitude (WGS84)"),
     mode: str = Query("auto", description="Depth source mode: auto, emodnet, gebco"),
@@ -396,8 +405,7 @@ async def get_depth(
 
 
 @app.post("/v1/score", response_model=ScoreResponse)
-@limiter.limit("50/minute")
-async def get_score(request: Request, score_request: ScoreRequest):
+async def get_score(score_request: ScoreRequest):
     """
     Get comprehensive score for a species at lat/lon with weather and time factors.
     
@@ -461,9 +469,7 @@ async def get_score(request: Request, score_request: ScoreRequest):
 
 # Keep GET endpoint for backward compatibility (depth-only scoring)
 @app.get("/v1/score", response_model=ScoreResponse)
-@limiter.limit("50/minute")
 async def get_score_get(
-    request: Request,
     lat: float = Query(..., ge=-90, le=90, description="Latitude (WGS84)"),
     lon: float = Query(..., ge=-180, le=180, description="Longitude (WGS84)"),
     species: str = Query(..., description="Species ID (e.g., 'chipura', 'levrek', 'sargoz')")
@@ -521,6 +527,22 @@ class BathymetrySourceInfo(BaseModel):
 
 class SourcesResponse(BaseModel):
     sources: Dict[str, BathymetrySourceInfo]
+
+
+class NearestLandResponse(BaseModel):
+    distance_km: Optional[float]  # None if not found
+    nearest_land_lat: Optional[float]
+    nearest_land_lon: Optional[float]
+    is_land: bool  # True if starting point is already land
+    error: Optional[str] = None
+
+
+class NearestLandResponse(BaseModel):
+    distance_km: Optional[float]  # None if not found
+    nearest_land_lat: Optional[float]
+    nearest_land_lon: Optional[float]
+    is_land: bool  # True if starting point is already land
+    error: Optional[str] = None
 
 
 class WindFieldResponse(BaseModel):
@@ -695,9 +717,7 @@ def _generate_wind_field_from_openmeteo(
 
 
 @app.get("/v1/wind/field", response_model=WindFieldResponse)
-@limiter.limit("20/minute")
 async def get_wind_field(
-    request: Request,
     west: float = Query(..., ge=-180, le=180, description="West longitude (WGS84)"),
     south: float = Query(..., ge=-90, le=90, description="South latitude (WGS84)"),
     east: float = Query(..., ge=-180, le=180, description="East longitude (WGS84)"),
@@ -768,6 +788,100 @@ async def get_sources():
     )
     
     return SourcesResponse(sources=sources)
+
+
+def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate distance between two points in km using Haversine formula.
+    
+    Args:
+        lat1, lon1: First point coordinates
+        lat2, lon2: Second point coordinates
+    
+    Returns:
+        Distance in kilometers
+    """
+    R = 6371.0  # Earth radius in km
+    dlat = np.radians(lat2 - lat1)
+    dlon = np.radians(lon2 - lon1)
+    a = (
+        np.sin(dlat / 2) ** 2
+        + np.cos(np.radians(lat1))
+        * np.cos(np.radians(lat2))
+        * np.sin(dlon / 2) ** 2
+    )
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c
+
+
+@app.get("/v1/depth/nearest-land", response_model=NearestLandResponse)
+async def get_nearest_land(
+    lat: float = Query(..., ge=-90, le=90, description="Latitude (WGS84)"),
+    lon: float = Query(..., ge=-180, le=180, description="Longitude (WGS84)"),
+    max_search_radius_km: float = Query(10.0, ge=0.1, le=50.0, description="Maximum search radius in kilometers")
+):
+    """
+    Find nearest land point from given coordinates.
+    Uses spiral search pattern: searches in 8 directions at increasing radii.
+    
+    Returns:
+        Distance to nearest land in kilometers, coordinates of nearest land point,
+        and whether the starting point is already on land.
+    """
+    # Check if starting point is already land
+    depth, _ = query_depth(lat, lon)
+    if depth is not None and depth >= 0:
+        return NearestLandResponse(
+            distance_km=0.0,
+            nearest_land_lat=lat,
+            nearest_land_lon=lon,
+            is_land=True
+        )
+    
+    # Spiral search pattern
+    step_size_km = 0.1  # 100m steps
+    max_steps = int(max_search_radius_km / step_size_km)
+    
+    for radius_km in np.arange(step_size_km, max_search_radius_km, step_size_km):
+        # Search in 8 directions (N, NE, E, SE, S, SW, W, NW)
+        angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
+        
+        for angle in angles:
+            # Convert km to lat/lon offset (approximate)
+            # 1 degree latitude ≈ 111 km
+            # 1 degree longitude ≈ 111 km * cos(latitude)
+            lat_offset = radius_km * np.cos(angle) / 111.0
+            lon_offset = radius_km * np.sin(angle) / (111.0 * np.cos(np.radians(lat)))
+            
+            test_lat = lat + lat_offset
+            test_lon = lon + lon_offset
+            
+            # Validate coordinates
+            if not (-90 <= test_lat <= 90) or not (-180 <= test_lon <= 180):
+                continue
+            
+            # Query depth at this point
+            test_depth, _ = query_depth(test_lat, test_lon)
+            
+            if test_depth is not None and test_depth >= 0:
+                # Found land! Calculate exact distance using Haversine
+                distance_km = calculate_haversine_distance(lat, lon, test_lat, test_lon)
+                
+                return NearestLandResponse(
+                    distance_km=round(distance_km, 2),
+                    nearest_land_lat=round(test_lat, 6),
+                    nearest_land_lon=round(test_lon, 6),
+                    is_land=False
+                )
+    
+    # No land found within search radius
+    return NearestLandResponse(
+        distance_km=None,
+        nearest_land_lat=None,
+        nearest_land_lon=None,
+        is_land=False,
+        error="No land found within search radius"
+    )
 
 
 if __name__ == "__main__":

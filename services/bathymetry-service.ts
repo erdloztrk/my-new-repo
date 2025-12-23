@@ -5,6 +5,14 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import type { DepthResponse, ScoreResponse, SpeciesKey, WeatherData, SourcesResponse } from "@/types/bathymetry";
+
+export interface NearestLandResponse {
+  distance_km: number | null;
+  nearest_land_lat: number | null;
+  nearest_land_lon: number | null;
+  is_land: boolean;
+  error?: string;
+}
 import { logDebug, logWarn, logError } from "@/lib/logger";
 
 // For development: use localhost for iOS simulator, 10.0.2.2 for Android emulator, or your computer's IP for physical device
@@ -115,7 +123,7 @@ export async function getDepth(
   try {
     // Create AbortController for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout (increased for slow backend)
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout (increased for slow backend)
     
     const response = await fetch(url, {
       method: "GET",
@@ -381,6 +389,58 @@ export async function getSources(): Promise<SourcesResponse> {
   } catch (error) {
     logError("[BathymetryService] Error fetching sources:", error);
     throw error;
+  }
+}
+
+/**
+ * Get nearest land point from given coordinates.
+ */
+export async function getNearestLand(
+  lat: number,
+  lon: number,
+  maxRadiusKm: number = 10
+): Promise<NearestLandResponse> {
+  const apiBaseUrl = getApiBaseUrl();
+  const url = `${apiBaseUrl}/v1/depth/nearest-land?lat=${lat}&lon=${lon}&max_search_radius_km=${maxRadiusKm}`;
+  logDebug("[BathymetryService] Fetching nearest land from:", url);
+  
+  try {
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Nearest land query failed (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    logDebug("[BathymetryService] Nearest land response received:", data);
+    return data;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.name === "AbortError") {
+        logError(`[BathymetryService] Request timeout after 30s (${url}), backend may be slow or unavailable`);
+        throw new Error(`Backend timeout: Request took longer than 30 seconds`);
+      }
+      if (error.message.includes("Network request failed") || error.message.includes("Failed to fetch")) {
+        logDebug(`[BathymetryService] Network request failed (${url}), backend may be down`);
+        throw new Error(`Backend unavailable: ${error.message}`);
+      }
+      logError("[BathymetryService] Error fetching nearest land:", error);
+      throw error;
+    }
+    throw new Error("Unknown error fetching nearest land");
   }
 }
 
